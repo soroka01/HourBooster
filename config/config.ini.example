@@ -1,0 +1,18 @@
+[telegram]
+bot_token = YOUR_BOT_TOKEN_HERE
+allowed_user_id = YOUR_TELEGRAM_USER_ID
+
+[account1]
+username = your_steam_login1
+password = your_steam_password1
+games = 570,730,440
+
+[account2]
+username = your_steam_login2
+password = your_steam_password2
+games = 570,730,252490
+
+[account3]
+username = your_steam_login3
+password = your_steam_password3
+games = 570,730,1422450
