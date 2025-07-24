@@ -48,7 +48,7 @@ steam-hour-booster/
 
 1. **Клонируйте репозиторий:**
 ```bash
-git clone https://github.com/yourusername/steam-hour-booster.git
+git clone https://github.com/soroka01/steam-hour-booster.git
 cd steam-hour-booster
 ```
 
@@ -150,7 +150,7 @@ python HourBooster.py
 ### На сервере (Linux):
 ```bash
 # Клонируйте репозиторий
-git clone https://github.com/yourusername/steam-hour-booster.git
+git clone https://github.com/soroka01/steam-hour-booster.git
 cd steam-hour-booster
 
 # Создайте виртуальное окружение
