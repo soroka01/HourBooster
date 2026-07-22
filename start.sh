@@ -1,22 +1,20 @@
-#!/bin/bash
-# Скрипт для запуска Steam Hour Booster Bot
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "🚀 Запуск Steam Hour Booster Bot..."
+cd "$(dirname "$0")"
 
-# Проверяем наличие виртуального окружения
-if [ ! -d ".venv" ]; then
-    echo "❌ Виртуальное окружение не найдено!"
-    echo "📋 Выполните: python -m venv .venv"
-    exit 1
+if [[ ! -f "config/config.ini" ]]; then
+  echo "[ERROR] config/config.ini was not found."
+  echo "Copy config/config.ini.example to config/config.ini and configure Telegram access."
+  exit 1
 fi
 
-# Проверяем наличие конфигурации
-if [ ! -f "config/config.ini" ]; then
-    echo "❌ Файл конфигурации не найден!"
-    echo "📋 Скопируйте config/config.ini.example в config/config.ini и настройте его"
-    exit 1
+if [[ ! -x ".venv/bin/python" ]]; then
+  echo "[SETUP] Creating local .venv..."
+  python3 -m venv .venv
 fi
 
-# Активируем виртуальное окружение и запускаем бота
-source .venv/bin/activate
-python HourBooster.py
+echo "[SETUP] Installing dependencies into .venv..."
+.venv/bin/python -m pip install -r requirements.txt
+
+exec .venv/bin/python HourBooster.py "$@"

@@ -1,156 +1,146 @@
 # 🎮 Steam Hour Booster
 
-> A private Telegram control panel for launching Steam clients and tracking game time across up to three accounts.
+> A private Telegram control panel for managing any number of Steam accounts, launching games, and accurately tracking boost time.
 
 🌐 **Language:** [Русский](README.md) · [English](README_EN.md)
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)
 ![Aiogram](https://img.shields.io/badge/Telegram-aiogram%203-2CA5E0?logo=telegram&logoColor=white)
-![Steam](https://img.shields.io/badge/Steam-client-171A21?logo=steam&logoColor=white)
+![SQLite](https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-## ✨ Project concept
+## ✨ What changed
 
-The bot replaces manually signing into several Steam clients with a simple Telegram menu. The owner selects an account, starts or stops its session, sees its state, and enters a Steam Guard or email code in the bot chat when Steam requests one.
+The bot is no longer limited to `account1..account3` configuration sections. Accounts, Steam App IDs, and statistics live in a local SQLite database and are fully managed through Telegram: add, edit, and delete everything from one control screen.
 
-| Area | How it works |
+| Capability | How it works |
 | --- | --- |
-| 👤 Access | Only the Telegram user ID in `allowed_user_id` can use the bot |
-| 🎮 Accounts | Up to three independent sections: `account1`, `account2`, and `account3` |
-| 🧭 Controls | Inline buttons for start, stop, status, and menu refresh |
-| 🔐 Authentication | Mobile Steam Guard and email-code flows are supported |
-| 🔄 Sessions | Each Steam client runs in its own daemon thread |
+| ♾️ Any number of accounts | SQLite replaces three hard-coded sections; lists are paginated in groups of six |
+| 🧭 One screen | The bot edits one control message instead of filling the chat with replies |
+| ⏱ Accurate statistics | Time starts only after a successful Steam login and is persisted when the session stops |
+| 🔐 Private access | Only the `allowed_user_id` in local configuration can operate the bot |
+| 🔄 Migration | Legacy `[account*]` sections are imported into SQLite once on first launch |
 
 ## 🚀 Features
 
-- **Private menu** — middleware blocks commands and button callbacks from unauthorized users.
-- **Up to 3 accounts** — keep only the account sections you need in the configuration.
-- **Start games by Steam App ID** — the client calls `games_played` for the account's game list.
-- **Session state** — the main menu shows the active-account count; the account screen shows its login, state, and configured games.
-- **Safe stop** — stopping disconnects the Steam client and waits for its thread with a timeout.
-- **Steam Guard and email codes** — the bot moves the owner into a dedicated input state, supports cancellation by button or `/cancel`, and removes the code message when Telegram permits it.
-- **In-place menu updates** — button navigation edits the current screen instead of creating a noisy reply chain.
+- **Account CRUD in the bot** — add a title, login, password, and game list; edit every field; delete with confirmation.
+- **Pagination for large lists** — the interface remains usable with 100+ accounts.
+- **Safe UX** — passwords are never shown; the bot attempts to delete user messages containing passwords or Steam Guard codes after processing.
+- **Steam Guard and email** — the owner moves into a focused code-entry state with cancel controls and no new service screens.
+- **Live state** — active account cards refresh every two seconds by editing the same message.
+- **Statistics** — total time, current-session time, and completed-session count for each account.
+- **Restart resilience** — an unfinished active session is closed in statistics when the app starts again.
 
-## 🗺️ Workflow
+## 🗺️ Interface flow
 
 ```text
 /start
-  └─ choose an account
-       ├─ ▶️ Start
-       │    └─ enter a Steam Guard / email code if requested
-       ├─ ⏹️ Stop
-       └─ 📊 Statistics
+  └─ 🎮 account list
+       ├─ ➕ Add account
+       └─ open an account card
+            ├─ 🚀 Start / ⏹️ Stop
+            ├─ 📊 Statistics
+            ├─ ✏️ Settings
+            │    ├─ title
+            │    ├─ Steam login
+            │    ├─ password
+            │    └─ Steam App IDs
+            └─ 🗑 Delete with confirmation
 ```
 
-Available commands:
+Commands:
 
-| Command | Purpose |
+| Command | Action |
 | --- | --- |
-| `/start` | Open the account menu |
+| `/start`, `/menu` | Open the main screen |
 | `/help` | Show short instructions |
-| `/cancel` | Cancel Steam Guard or email-code input |
+| `/cancel` | Cancel Steam Guard, email-code, or form input |
 
-## 🏗️ Project structure
+## 🏗️ Architecture
 
 ```text
-steam_HourBooster/
-├── HourBooster.py              # Entry point: bot, dispatcher, and callbacks
-├── start.bat                   # Self-contained Windows launcher
-├── requirements.txt            # aiogram and Steam client dependencies
+HourBooster/
+├── HourBooster.py              # Bot, database, and middleware bootstrap
+├── start.bat / start.sh         # Self-contained Windows/Linux launchers
 ├── config/
-│   ├── config.ini.example      # Secret-free template
-│   └── config.ini              # Owner's local configuration
+│   └── config.ini.example       # Token, owner ID, and optional database path only
 └── src/
-    ├── config_manager.py       # Reads Telegram and Steam settings
+    ├── config_manager.py        # Telegram configuration + legacy-account migration
+    ├── storage/
+    │   └── database.py          # SQLite accounts, sessions, stats, and UI message
     ├── steam/
-    │   └── steam_manager.py    # Login, games_played, and client stop
+    │   └── steam_manager.py     # Steam threads, Guard, start/stop, and time accounting
     └── bot/
-        ├── access_middleware.py # Telegram user-ID restriction
-        ├── handlers.py          # Start, stop, and account state
-        ├── states.py            # FSM for Steam Guard / email codes
-        └── ui_manager.py        # Text and inline keyboards
+        ├── controller.py        # CRUD, callbacks, forms, and navigation
+        ├── ui.py                # One message, live refresh, and keyboards
+        ├── states.py            # FSM for forms and Steam codes
+        └── access_middleware.py # Telegram user-ID restriction
 ```
 
-## ⚙️ Install and run
+## ⚙️ Install
 
-Requires **Python 3.8+** plus access to Telegram and Steam.
-
-### 1. Get the source
+Requires **Python 3.8+**, a Telegram bot, and Steam accounts you are authorized to manage.
 
 ```powershell
 git clone https://github.com/soroka01/HourBooster.git
 cd HourBooster
-```
-
-### 2. Prepare local configuration
-
-`config/config.ini` contains the Telegram bot token and Steam credentials. Create it from the template and never commit it:
-
-```powershell
 Copy-Item config\config.ini.example config\config.ini
 ```
 
-Minimal layout:
+Fill in only Telegram settings:
 
 ```ini
 [telegram]
 bot_token = YOUR_BOT_TOKEN
 allowed_user_id = YOUR_TELEGRAM_USER_ID
 
-[account1]
-username = your_steam_login
-password = your_steam_password
-games = 570,730,440
+[storage]
+# Optional. data/hour_booster.sqlite3 is the default.
+# database_path = data/hour_booster.sqlite3
 ```
 
-Add `account2` and `account3` only when needed. `games` contains comma-separated Steam App IDs; look them up in [SteamDB](https://steamdb.info/search/).
-
-### 3. Start the bot
-
-On Windows, use `start.bat`. It checks for `config/config.ini`, creates a local `.venv` when needed, and installs `requirements.txt`.
-
-Or run the project manually:
+Then start:
 
 ```powershell
+# Windows: creates .venv and installs dependencies when necessary
+.\start.bat
+
+# Or manually
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
 .\.venv\Scripts\python HourBooster.py
 ```
 
-On Linux/macOS, use the equivalent Python executable and virtual-environment paths:
+On Linux/macOS:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python HourBooster.py
+cp config/config.ini.example config/config.ini
+./start.sh
 ```
 
-## 🔐 Access and Steam Guard setup
+## 🔁 Legacy configuration migration
 
-1. Create a Telegram bot through [@BotFather](https://t.me/BotFather) and put its token in `bot_token`.
-2. Find your numeric Telegram user ID, for example through [@userinfobot](https://t.me/userinfobot), and set `allowed_user_id`.
-3. Send `/start`, choose an account, and press **Start**.
-4. If Steam requests an additional confirmation, send the Steam Guard or email code to the bot. Use `/cancel` or the **Cancel** button to stop the flow.
+If an existing `config/config.ini` still has `[account1]`, `[account2]`, or other account sections, the bot imports valid accounts into SQLite on the first launch after the update. Once you verify the migration, remove Steam logins and passwords from the configuration: manage them only through the Telegram menu afterwards.
 
-> ⚠️ `allowed_user_id` is one ID, not a list. The bot is designed for personal use by the owner of the configuration.
+> ⚠️ Import runs once. Back up `config/config.ini` before updating and never publish it.
 
-## 🛡️ Security and limitations
+## 🔐 Security
 
-- Never publish `config/config.ini`, a Telegram token, or Steam passwords.
+- Never commit `config/config.ini`, the SQLite database in `data/`, or logs.
+- Steam passwords and game lists are stored locally in SQLite so the bot can log in. Secure the machine and disk access.
+- `allowed_user_id` is one numeric Telegram owner ID, not a multi-user list.
+- Steam Guard and email codes are sensitive one-time values. Never forward them to anyone else.
 - Use only accounts you are authorized to manage and follow Steam's rules.
-- Steam Guard and email codes are sensitive one-time values; never send them to anyone else.
-- The application reads local credentials to log into Steam. Secure the machine and its file-system access.
-- The bot controls client sessions; it does not guarantee time accrual, Steam availability, or the absence of platform-side restrictions.
 
-## 🧪 Change verification
+## 🧪 Buffer checks
 
-The repository does not include production tests. For safe changes, use buffer checks:
+No production tests are added to the repository. Before publishing, check:
 
-- compile Python modules;
-- check for `config/config.ini` before launch;
-- sign in with a test account;
-- start, inspect, and stop one session;
-- test the Steam Guard flow and `/cancel`.
+- Python module compilation;
+- creating 100 SQLite accounts and pagination;
+- account creation, editing, and deletion;
+- accurate start/stop duration accounting;
+- `git diff --check`.
 
 ## 📄 License
 
@@ -158,4 +148,4 @@ This project is available under the [MIT License](LICENSE).
 
 ---
 
-💙 Built for tidy personal control of Steam sessions through Telegram.
+💙 Fewer manual Steam clients, more clarity and control from Telegram.

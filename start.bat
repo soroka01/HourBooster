@@ -1,25 +1,51 @@
 @echo off
-REM Скрипт для запуска Steam Hour Booster Bot на Windows
+setlocal EnableExtensions
+cd /d "%~dp0"
+chcp 65001 >nul 2>&1
+set "PYTHONUTF8=1"
 
-echo 🚀 Запуск Steam Hour Booster Bot...
-
-REM Проверяем наличие виртуального окружения
-if not exist ".venv" (
-    echo ❌ Виртуальное окружение не найдено!
-    echo 📋 Выполните: python -m venv .venv
-    pause
-    exit /b 1
-)
-
-REM Проверяем наличие конфигурации
 if not exist "config\config.ini" (
-    echo ❌ Файл конфигурации не найден!
-    echo 📋 Скопируйте config\config.ini.example в config\config.ini и настройте его
+    echo [ERROR] config\config.ini was not found.
+    echo Copy config\config.ini.example to config\config.ini and configure it.
     pause
     exit /b 1
 )
 
-REM Активируем виртуальное окружение и запускаем бота
-call .venv\Scripts\activate
-python HourBooster.py
+set "PYTHON_CMD=.venv\Scripts\python.exe"
+if not exist "%PYTHON_CMD%" (
+    set "BOOTSTRAP_PY="
+    where py >nul 2>&1
+    if not errorlevel 1 set "BOOTSTRAP_PY=py -3"
+    if not defined BOOTSTRAP_PY (
+        where python >nul 2>&1
+        if not errorlevel 1 set "BOOTSTRAP_PY=python"
+    )
+    if not defined BOOTSTRAP_PY (
+        echo [ERROR] Python 3 was not found.
+        pause
+        exit /b 1
+    )
+    echo [SETUP] Creating local .venv...
+    %BOOTSTRAP_PY% -m venv .venv
+    if errorlevel 1 (
+        echo [ERROR] Could not create .venv.
+        pause
+        exit /b 1
+    )
+)
+
+if exist "requirements.txt" (
+    echo [SETUP] Installing dependencies into .venv...
+    set "PIP_DISABLE_PIP_VERSION_CHECK=1"
+    "%PYTHON_CMD%" -m pip install -r requirements.txt
+    if errorlevel 1 (
+        echo [ERROR] Dependency installation failed.
+        pause
+        exit /b 1
+    )
+)
+
+"%PYTHON_CMD%" "HourBooster.py" %*
+set "EXIT_CODE=%ERRORLEVEL%"
 pause
+endlocal & exit /b %EXIT_CODE%

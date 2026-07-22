@@ -125,6 +125,10 @@ dmypy.json
 # Configuration files with sensitive data
 config/config.ini
 
+# Local SQLite data
+data/
+steam_monitor/config.ini
+
 # Steam files
 steam_appinfo.vdf
 steam_config.vdf
