@@ -4,7 +4,7 @@
 
 🌐 **Language:** [Русский](README.md) · [English](README_EN.md)
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.14%2B-3776AB?logo=python&logoColor=white)
 ![Telegram](https://img.shields.io/badge/Telegram-aiogram%203.4.1-2CA5E0?logo=telegram&logoColor=white)
 ![Storage](https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -99,7 +99,8 @@ logout/disconnect → database.stop_boost()
 
 ## 📋 Requirements
 
-- Python 3.8 or newer;
+- Python 3.14 or newer (the latest 3.14.6 patch is recommended);
+- pip 26.1.2, setuptools 84.0.0, and wheel 0.48.0 (the launchers upgrade them automatically);
 - a Telegram bot created through [@BotFather](https://t.me/BotFather);
 - the owner's numeric Telegram user ID;
 - Steam accounts you are authorized to manage;
