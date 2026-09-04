@@ -8,6 +8,7 @@ from typing import Dict, Optional
 from steam.client import EResult, SteamClient
 
 from ..storage import Account, Database
+from .diagnostics import attach_login_diagnostics
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +197,7 @@ class SteamSessionManager:
                 account = session.account
 
             client = SteamClient()
+            attach_login_diagnostics(client, account.id)
             with self._lock:
                 if self._sessions.get(int(account_id)) is not session:
                     return
@@ -209,7 +211,9 @@ class SteamSessionManager:
 
             logger.info("Подключение Steam для аккаунта %s", account.id)
             result = client.login(**login_kwargs)
-            result_code = getattr(result, "value", None)
+            result_code = int(result)
+            logger.info("Steam account=%s login_result=%s code=%s", account.id,
+                        getattr(result, "name", "Unknown"), result_code)
 
             if result == EResult.OK:
                 self._database.start_boost(account.id)
@@ -232,7 +236,13 @@ class SteamSessionManager:
                 self._set_pending(session, int(user_id), "email")
                 return
 
-            self._set_error(session, "Steam отклонил вход (код {0}).".format(result_code))
+            if result == EResult.InvalidPassword:
+                self._set_error(session, "Steam отклонил учётные данные (InvalidPassword, код 5). "
+                                "Проверьте вход с теми же данными в Steam; "
+                                "если он работает, нужна диагностика авторизации библиотеки.")
+            else:
+                self._set_error(session, "Steam отклонил вход ({0}, код {1}).".format(
+                    getattr(result, "name", "Unknown"), result_code))
         except Exception as error:
             logger.exception("Ошибка Steam-сессии %s", account_id)
             if session:

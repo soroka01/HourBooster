@@ -212,6 +212,23 @@ SQLite по умолчанию находится в `data/hour_booster.sqlite3`
 
 ## 🩹 Решение проблем
 
+Для диагностики входа одного аккаунта по его ID в SQLite:
+
+```powershell
+.\.venv\Scripts\python.exe debug_login.py 3
+.\.venv\Scripts\python.exe debug_login.py 3 --login
+.\.venv\Scripts\python.exe debug_login.py 3 --modern
+```
+
+Без флага проверяются только признаки случайных пробелов и управляющих символов.
+`--login` делает одну попытку через используемый ботом SteamClient;
+`--modern` проверяет те же данные через современный API авторизации Steam и может
+вызвать уведомление Steam Guard. Диагностика не запускает игры, не меняет SQLite,
+не сохраняет токены и не выводит логин, пароль или содержимое ответов целиком.
+Если старый вход возвращает `InvalidPassword`, а современный — `eresult: 1` и
+`auth_session_created: True`, данные приняты современным API: требуется обновление
+пути авторизации бота. Эта проверка сама по себе не переводит бот на новый вход.
+
 | Симптом | Что проверить |
 | --- | --- |
 | `config/config.ini was not found` | Скопирован ли `config.ini.example` |

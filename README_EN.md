@@ -212,6 +212,23 @@ On the first launch with the new storage schema, valid `[account1]`, `[account2]
 
 ## 🩹 Troubleshooting
 
+Diagnose one account by its SQLite ID:
+
+```powershell
+.\.venv\Scripts\python.exe debug_login.py 3
+.\.venv\Scripts\python.exe debug_login.py 3 --login
+.\.venv\Scripts\python.exe debug_login.py 3 --modern
+```
+
+Without a flag, only accidental whitespace and control-character checks run.
+`--login` attempts one login through the bot's SteamClient; `--modern` checks the
+same credentials through Steam's modern authentication API and may trigger a
+Steam Guard notification. Neither mode plays games, changes SQLite, saves tokens,
+or prints usernames, passwords, or complete response payloads. Legacy
+`InvalidPassword` together with modern `eresult: 1` and `auth_session_created: True`
+means modern authentication accepted the credentials. The bot's authentication
+flow still needs updating; this diagnostic does not migrate it.
+
 | Symptom | Check |
 | --- | --- |
 | `config/config.ini was not found` | Copy `config.ini.example` first |
