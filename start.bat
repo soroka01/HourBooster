@@ -4,13 +4,6 @@ cd /d "%~dp0"
 chcp 65001 >nul 2>&1
 set "PYTHONUTF8=1"
 
-if not exist "config\config.ini" (
-    echo [ERROR] config\config.ini was not found.
-    echo Copy config\config.ini.example to config\config.ini and configure it.
-    pause
-    exit /b 1
-)
-
 set "PYTHON_CMD=.venv\Scripts\python.exe"
 if not exist "%PYTHON_CMD%" (
     set "BOOTSTRAP_PY="

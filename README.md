@@ -5,7 +5,7 @@
 🌐 **Язык:** [Русский](README.md) · [English](README_EN.md)
 
 ![Python](https://img.shields.io/badge/Python-3.14%2B-3776AB?logo=python&logoColor=white)
-![Telegram](https://img.shields.io/badge/Telegram-aiogram%203.4.1-2CA5E0?logo=telegram&logoColor=white)
+![Telegram](https://img.shields.io/badge/Telegram-aiogram%203.31.0-2CA5E0?logo=telegram&logoColor=white)
 ![Storage](https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
@@ -14,7 +14,7 @@
 Бот хранит Steam-аккаунты в локальной SQLite-базе и даёт владельцу один Telegram-интерфейс для добавления, редактирования, запуска, остановки и просмотра статистики. После успешного входа отдельный `SteamClient` вызывает `games_played()` с настроенными App ID и остаётся подключённым в daemon thread до остановки или разрыва сессии.
 
 > [!IMPORTANT]
-> Steam-логины и пароли хранятся в SQLite **в открытом виде**, потому что клиенту нужны исходные credentials для входа. Защитите компьютер, backup базы и Telegram-бота; не публикуйте `config/config.ini` и `data/`.
+> Steam-логины и пароли хранятся в SQLite **в открытом виде**, потому что клиенту нужны исходные credentials для входа. Защитите компьютер, backup базы и Telegram-бота; не публикуйте `data/`.
 
 > [!NOTE]
 > `games_played()` сообщает Steam о выбранных App ID, но не запускает игровые executables на компьютере. Используйте только аккаунты, которыми вы вправе управлять, и соблюдайте правила Steam.
@@ -23,13 +23,12 @@
 
 | Возможность | Как работает |
 | --- | --- |
-| Динамические аккаунты | Аккаунты добавляются через Telegram, без фиксированных `[account1..3]` |
+| Динамические аккаунты | Аккаунты добавляются через Telegram, без ограничения тремя записями |
 | Приватный доступ | Все messages и callbacks проходят проверку одного `allowed_user_id` |
 | Один control screen | Бот редактирует сохранённое сообщение вместо цепочки служебных ответов |
 | Steam Guard | Поддерживаются mobile two-factor и email auth codes |
 | Локальная статистика | SQLite хранит суммарное время и завершённые sessions |
 | Пагинация | Список выводится страницами по 6 аккаунтов |
-| Legacy migration | Старые `[account*]` sections однократно импортируются в SQLite |
 
 Через меню можно:
 
@@ -65,13 +64,13 @@
 
 ```text
 HourBooster.py                  # bot, database, middleware и polling
-config/
-└── config.ini.example          # Telegram access и optional DB path
+data/hour_booster.sqlite3       # аккаунты и настройки Telegram (вне Git)
 src/
-├── config_manager.py           # config и legacy [account*] import
+├── config_manager.py           # настройки Telegram в SQLite и первый запуск
 ├── storage/
 │   └── database.py             # accounts, sessions, stats и UI state
 ├── steam/
+│   ├── game_names.py           # Steam app names and cache
 │   └── steam_manager.py        # SteamClient lifecycle и worker threads
 └── bot/
     ├── access_middleware.py    # owner-only access
@@ -98,7 +97,7 @@ logout/disconnect → database.stop_boost()
 
 ## 📋 Требования
 
-- Python 3.14 или новее (рекомендуется актуальный патч 3.14.6);
+- Python 3.14;
 - pip 26.1.2, setuptools 84.0.0 и wheel 0.48.0 (launcher обновляет их автоматически);
 - Telegram-бот, созданный через [@BotFather](https://t.me/BotFather);
 - числовой Telegram user ID владельца;
@@ -110,10 +109,9 @@ logout/disconnect → database.stop_boost()
 ```powershell
 git clone https://github.com/soroka01/HourBooster.git
 cd HourBooster
-Copy-Item config\config.ini.example config\config.ini
 ```
 
-Заполните `config/config.ini`, затем выберите способ запуска.
+При первом запуске введите токен Telegram-бота и ID владельца в консоли. Они сохранятся в SQLite; аккаунты добавляются через Telegram.
 
 ### Windows
 
@@ -131,43 +129,29 @@ python -m venv .venv
 .\.venv\Scripts\python.exe HourBooster.py
 ```
 
-### Linux или macOS-подобная среда
-
-[start.sh](start.sh) требует `bash` и `python3`:
+### Linux и macOS
 
 ```bash
-cp config/config.ini.example config/config.ini
-./start.sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python HourBooster.py
 ```
-
-Unix-like launcher присутствует, но не проверяется CI; установка `steam[client]` может потребовать дополнительные system packages в зависимости от платформы и версии Python.
-
-Оба launcher выполняют `pip install -r requirements.txt` при каждом запуске. Уже удовлетворённые зависимости повторно не скачиваются.
 
 ## 🔧 Конфигурация
 
-```ini
-[telegram]
-bot_token = YOUR_BOT_TOKEN_HERE
-allowed_user_id = YOUR_TELEGRAM_USER_ID
+Настройки Telegram хранятся в таблице `app_settings` той же SQLite-базы, что и аккаунты. Для изменения токена или ID владельца остановите бота и выполните:
 
-[storage]
-# Optional. Default: data/hour_booster.sqlite3
-# database_path = data/hour_booster.sqlite3
+```powershell
+.\.venv\Scripts\python.exe HourBooster.py --setup
 ```
 
-| Поле | Назначение |
-| --- | --- |
-| `telegram.bot_token` | Token Telegram-бота |
-| `telegram.allowed_user_id` | Единственный user ID, которому разрешено управление |
-| `storage.database_path` | Optional absolute path или путь относительно корня проекта |
-
-`config/config.ini` обязателен и исключён из Git. Placeholder `allowed_user_id` должен быть заменён числом.
+Токен вводится скрыто. После сохранения команда завершится; запустите бота обычным способом. По умолчанию используется `data/hour_booster.sqlite3` относительно каталога проекта. Другую базу можно выбрать ключом `--database PATH`, в том числе вместе с `--setup`.
 
 ## 🔐 Локальные данные и безопасность
 
 SQLite по умолчанию находится в `data/hour_booster.sqlite3` и содержит:
 
+- токен Telegram-бота и ID владельца;
 - названия аккаунтов, Steam logins и **plaintext passwords**;
 - списки App ID;
 - суммарное время и отметку `active_since`;
@@ -177,7 +161,7 @@ SQLite по умолчанию находится в `data/hour_booster.sqlite3`
 Рекомендации:
 
 - ограничьте доступ к каталогу проекта средствами операционной системы;
-- не помещайте базу и config в публичные backups;
+- не помещайте базу в публичные backups;
 - отзовите Telegram token при подозрении на утечку;
 - не полагайтесь на удаление messages как на единственную защиту credentials;
 - перед удалением аккаунта сделайте backup, если нужна его статистика.
@@ -189,50 +173,22 @@ SQLite по умолчанию находится в `data/hour_booster.sqlite3`
 > [!WARNING]
 > При завершении процесса бот не останавливает все Steam workers отдельным shutdown hook. Если в SQLite остаётся `active_since`, следующий запуск закрывает такую session своим текущим временем. Поэтому downtime между остановкой процесса и следующим запуском может попасть в статистику. Эти значения — локальный учёт работы бота, а не независимая или гарантированно точная Steam playtime.
 
-## 🔁 Миграция старой конфигурации
+## 🔁 Обновление
 
-При первом запуске новой storage-схемы valid sections `[account1]`, `[account2]` и другие `[account*]` импортируются в SQLite. После первой попытки в базе ставится общий migration marker, и повторный автоматический import не выполняется.
+Сохраните резервную копию SQLite, выполните `git pull` и перезапустите бота. Существующие аккаунты и статистика остаются в БД. Если настройки Telegram ещё не сохранены в ней, укажите их при первом запуске. Импорт аккаунтов из INI удалён.
 
-1. Сделайте backup `config/config.ini`.
-2. Запустите бота и проверьте импортированные карточки.
-3. Удалите Steam credentials из legacy sections после проверки.
+## ⚠️ Ограничения
 
-## 🧪 Ограничения и тестирование
-
-- Репозиторий не содержит automated tests и CI.
-- Зависимость `steam[client]` не закреплена по версии, поэтому её transitive dependency set может измениться между установками.
-- Live refresh обновляет только открытый control screen и работает с интервалом не меньше 2 секунд.
-- Фактическая доступность Steam login и Guard flows зависит от Steam и используемой версии client library.
-- Синтаксис модулей можно проверить без credentials:
-
-  ```bash
-  python -m compileall -q HourBooster.py src
-  ```
+- Обновляется только открытая карточка с интервалом не меньше 2 секунд.
+- Названия игр загружаются из Steam и кэшируются; при недоступности названия отображается ID. Длинные названия сокращаются до лимита сообщения.
+- Используемый `steam==1.4.4` выполняет старый вход. Он может возвращать код 5 даже для данных, принятых современным API; переход на современную авторизацию ещё не реализован.
 
 ## 🩹 Решение проблем
 
-Для диагностики входа одного аккаунта по его ID в SQLite:
-
-```powershell
-.\.venv\Scripts\python.exe debug_login.py 3
-.\.venv\Scripts\python.exe debug_login.py 3 --login
-.\.venv\Scripts\python.exe debug_login.py 3 --modern
-```
-
-Без флага проверяются только признаки случайных пробелов и управляющих символов.
-`--login` делает одну попытку через используемый ботом SteamClient;
-`--modern` проверяет те же данные через современный API авторизации Steam и может
-вызвать уведомление Steam Guard. Диагностика не запускает игры, не меняет SQLite,
-не сохраняет токены и не выводит логин, пароль или содержимое ответов целиком.
-Если старый вход возвращает `InvalidPassword`, а современный — `eresult: 1` и
-`auth_session_created: True`, данные приняты современным API: требуется обновление
-пути авторизации бота. Эта проверка сама по себе не переводит бот на новый вход.
-
 | Симптом | Что проверить |
 | --- | --- |
-| `config/config.ini was not found` | Скопирован ли `config.ini.example` |
-| Ошибка конфигурации | `bot_token` и числовой `allowed_user_id` |
-| Нет доступа к боту | Совпадает ли Telegram user ID с config |
+| Ошибка конфигурации | Повторите `HourBooster.py --setup` |
+| Нет доступа к боту | Совпадает ли Telegram user ID с настройками SQLite |
 | Steam отклоняет login | Credentials и требуемый Guard/email code |
 | Сессия остаётся в `connecting` | Network access, Steam availability и logs в консоли |
 | Статистика выросла после restart | Ограничение recovery незакрытой session выше |

@@ -1,14 +1,16 @@
 """Steam Hour Booster entry point."""
 
 import asyncio
+import argparse
 import logging
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand
 
 from src.bot.access_middleware import AccessMiddleware
 from src.bot.controller import BoosterController
-from src.config_manager import ConfigManager, ConfigurationError
+from src.config_manager import load_config, ConfigurationError
 from src.storage import Database
 from src.steam.steam_manager import SteamSessionManager
 
@@ -20,18 +22,22 @@ def configure_logging() -> None:
     )
 
 
-async def main() -> None:
+async def main(database_path: Path, setup: bool = False) -> None:
     configure_logging()
     logger = logging.getLogger(__name__)
 
-    config_manager = ConfigManager()
-    app_config = config_manager.get_app_config()
-    database = Database(app_config.database_path)
-    migrated = database.migrate_legacy_accounts(config_manager.get_legacy_accounts())
+    database = Database(database_path)
+    try:
+        app_config = load_config(database, setup)
+    except BaseException:
+        database.close()
+        raise
+    if setup:
+        database.close()
+        logger.info("Настройки Telegram сохранены в SQLite.")
+        return
     recovered = database.recover_interrupted_sessions()
 
-    if migrated:
-        logger.info("Перенесено старых аккаунтов в SQLite: %s", migrated)
     if recovered:
         logger.info("Закрыто прерванных сессий после перезапуска: %s", recovered)
 
@@ -62,8 +68,15 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--setup", action="store_true", help="Save Telegram settings to SQLite and exit")
+    parser.add_argument("--database", type=Path,
+                        default=Path(__file__).resolve().parent / "data" / "hour_booster.sqlite3",
+                        help="SQLite database path")
+    args = parser.parse_args()
     try:
-        asyncio.run(main())
+        asyncio.run(main(args.database, args.setup))
     except ConfigurationError as error:
         logging.basicConfig(level=logging.ERROR)
         logging.getLogger(__name__).error("Ошибка конфигурации: %s", error)
+        raise SystemExit(1)

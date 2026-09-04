@@ -6,7 +6,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 
 class StorageError(ValueError):
@@ -338,33 +338,20 @@ class Database:
             self.stop_boost(int(row["id"]), now)
         return len(rows)
 
-    def migrate_legacy_accounts(self, legacy_accounts: Iterable[Dict[str, object]]) -> int:
+    def get_setting(self, key: str) -> Optional[str]:
         with self._lock:
-            migrated = self._connection.execute(
-                "SELECT value FROM app_settings WHERE key = 'legacy_accounts_migrated'"
+            row = self._connection.execute(
+                "SELECT value FROM app_settings WHERE key = ?", (key,)
             ).fetchone()
-        if migrated:
-            return 0
+        return str(row["value"]) if row else None
 
-        imported = 0
-        for legacy in legacy_accounts:
-            try:
-                self.create_account(
-                    str(legacy["title"]),
-                    str(legacy["username"]),
-                    str(legacy["password"]),
-                    legacy["games"],  # type: ignore[arg-type]
-                )
-                imported += 1
-            except StorageError:
-                # A duplicate title should not prevent the rest of the first-run migration.
-                continue
-
+    def set_settings(self, values: Dict[str, str]) -> None:
         with self._lock, self._connection:
-            self._connection.execute(
-                "INSERT OR REPLACE INTO app_settings(key, value) VALUES ('legacy_accounts_migrated', '1')"
+            self._connection.executemany(
+                "INSERT INTO app_settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                values.items(),
             )
-        return imported
 
     def get_control_message(self, chat_id: int) -> Optional[int]:
         with self._lock:

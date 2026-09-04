@@ -61,7 +61,7 @@ class BoosterController:
         try:
             await message.delete()
         except Exception:
-            logger.debug("Telegram did not allow deleting a user input", exc_info=True)
+            pass
 
     @staticmethod
     def _parse_callback(data: str, expected_parts: int) -> Optional[Tuple[str, ...]]:
