@@ -204,7 +204,7 @@ class SteamSessionManager:
             with self._lock:
                 if session.cancelled.is_set():
                     return
-                client.games_played(list(session.account.games))
+                client.set_played_games(session.account.games, session.account.custom_game_name)
                 self._database.start_boost(session.account.id)
                 session.boost_recorded = True
                 session.status = SessionStatus.ACTIVE

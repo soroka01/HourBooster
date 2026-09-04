@@ -168,6 +168,17 @@ class BoosterController:
             if parts:
                 await self.begin_edit_field(chat_id, int(parts[1]), parts[2], self._page(parts[3]) if len(parts) == 4 else 0, state)
             return
+        if data.startswith("clear_custom:"):
+            parts = self._parse_callback(data, 3)
+            if parts:
+                account_id, page = int(parts[1]), self._page(parts[2])
+                if self.sessions.has_live_session(account_id):
+                    await self.render_account(chat_id, account_id, page, True)
+                    return
+                if self.database.get_account(account_id):
+                    self.database.update_account(account_id, "custom_game_name", "")
+                await self.show_edit_menu(chat_id, account_id, page, state)
+            return
         if data.startswith("delete:"):
             parts = self._parse_callback(data, 2) or self._parse_callback(data, 3)
             if parts:
@@ -335,7 +346,7 @@ class BoosterController:
             "<b>✏️ Настройки: {0}</b>\n\n"
             "Выберите поле. Пароль никогда не показывается на экране."
         ).format(html.escape(account.title))
-        await self.ui.show_for_chat(chat_id, text, edit_keyboard(account_id, page))
+        await self.ui.show_for_chat(chat_id, text, edit_keyboard(account_id, page, bool(account.custom_game_name)))
 
     async def begin_edit_field(
         self, chat_id: int, account_id: int, field: str, page: int, state: FSMContext
@@ -346,9 +357,13 @@ class BoosterController:
             "username": "👤 Отправьте новый логин Steam.",
             "password": "🔑 Отправьте новый пароль Steam. Сообщение будет удалено, если это возможно.",
             "games": "🎯 Отправьте Steam App ID через запятую, например <code>570,730</code>.",
+            "custom_game_name": "🎮 Отправьте название сторонней игры одной строкой (до 64 символов). Оно будет первым в списке игр Steam. Например: <code>Моя игра</code>.",
         }
         if account is None or field not in prompts:
             await self.render_home(chat_id, page, True)
+            return
+        if self.sessions.has_live_session(account_id):
+            await self.render_account(chat_id, account_id, page, True)
             return
         await state.clear()
         await state.set_state(AccountForm.edit_value)
@@ -367,6 +382,12 @@ class BoosterController:
             account_id = int(data["account_id"])
             field = str(data["field"])
             page = self._page(data.get("page"))
+            if self.sessions.has_live_session(account_id):
+                await state.clear()
+                await self.render_account(self._chat_id(message), account_id, page, True)
+                return
+            if field == "custom_game_name" and not str(value).strip():
+                raise StorageError("Введите название или используйте кнопку «Убрать кастомную игру» в настройках.")
             if field == "games":
                 value = parse_game_ids(value)
             self.database.update_account(account_id, field, value)

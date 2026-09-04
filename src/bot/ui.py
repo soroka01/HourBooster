@@ -125,6 +125,8 @@ def account_text(account: Account, stats: AccountStats, snapshot: SessionSnapsho
     text += "👤 Логин: <code>{0}</code>\n".format(html.escape(account.username))
     text += "📡 Статус: <b>{0}</b>\n".format(status_label(snapshot))
     text += "🎯 Игры:\n"
+    if account.custom_game_name:
+        text += "• <b>{0}</b> <i>(сторонняя игра)</i>\n".format(html.escape(account.custom_game_name))
     for game in account.games:
         name = (game_names or {}).get(game, "Название недоступно")
         # Bound even a 50-game card in Telegram's UTF-16 message budget.
@@ -155,13 +157,15 @@ def account_text(account: Account, stats: AccountStats, snapshot: SessionSnapsho
     return text
 
 
-def edit_keyboard(account_id: int, page: int) -> InlineKeyboardMarkup:
+def edit_keyboard(account_id: int, page: int, has_custom_game: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🏷 Название", callback_data="field:{0}:title:{1}".format(account_id, page))],
             [InlineKeyboardButton(text="👤 Логин Steam", callback_data="field:{0}:username:{1}".format(account_id, page))],
             [InlineKeyboardButton(text="🔑 Пароль Steam", callback_data="field:{0}:password:{1}".format(account_id, page))],
             [InlineKeyboardButton(text="🎯 Steam App ID", callback_data="field:{0}:games:{1}".format(account_id, page))],
+            [InlineKeyboardButton(text="🎮 Кастомная игра", callback_data="field:{0}:custom_game_name:{1}".format(account_id, page))],
+            *([[InlineKeyboardButton(text="✖️ Убрать кастомную игру", callback_data="clear_custom:{0}:{1}".format(account_id, page))]] if has_custom_game else []),
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="account:{0}:{1}".format(account_id, page))],
         ]
     )

@@ -24,6 +24,7 @@ class Account:
     active_since: Optional[int]
     created_at: int
     updated_at: int
+    custom_game_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -91,7 +92,8 @@ class Database:
                 total_boost_seconds INTEGER NOT NULL DEFAULT 0,
                 active_since INTEGER,
                 created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
+                updated_at INTEGER NOT NULL,
+                custom_game_name TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS boost_sessions (
@@ -117,6 +119,9 @@ class Database:
             );
             """
         )
+        columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(accounts)")}
+        if "custom_game_name" not in columns:
+            self._connection.execute("ALTER TABLE accounts ADD COLUMN custom_game_name TEXT NOT NULL DEFAULT ''")
         self._connection.commit()
 
     @staticmethod
@@ -140,6 +145,7 @@ class Database:
             active_since=(int(row["active_since"]) if row["active_since"] is not None else None),
             created_at=int(row["created_at"]),
             updated_at=int(row["updated_at"]),
+            custom_game_name=str(row["custom_game_name"]),
         )
 
     @staticmethod
@@ -223,6 +229,7 @@ class Database:
         username = account.username
         password = account.password
         games: Sequence[int] = account.games
+        custom_game_name = account.custom_game_name
 
         if field == "title":
             title = str(value)
@@ -232,6 +239,10 @@ class Database:
             password = str(value)
         elif field == "games":
             games = value  # type: ignore[assignment]
+        elif field == "custom_game_name":
+            custom_game_name = str(value).strip()
+            if len(custom_game_name) > 64 or any(ord(char) < 32 or ord(char) == 127 for char in custom_game_name):
+                raise StorageError("Название сторонней игры должно быть одной строкой до 64 символов.")
         else:
             raise StorageError("Неизвестное поле аккаунта.")
 
@@ -241,10 +252,10 @@ class Database:
                 self._connection.execute(
                     """
                     UPDATE accounts
-                    SET title = ?, username = ?, password = ?, games_json = ?, updated_at = ?
+                    SET title = ?, username = ?, password = ?, games_json = ?, custom_game_name = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (title, username, password, json.dumps(normalised_games), self._now(), int(account_id)),
+                    (title, username, password, json.dumps(normalised_games), custom_game_name, self._now(), int(account_id)),
                 )
         except sqlite3.IntegrityError as error:
             raise StorageError("Аккаунт с таким названием уже существует.") from error

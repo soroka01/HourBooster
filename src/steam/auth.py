@@ -106,6 +106,16 @@ class SteamAuth:
 
 
 class TokenSteamClient(SteamClient):
+    def set_played_games(self, app_ids, custom_name=""):
+        if not custom_name:
+            self.games_played(list(app_ids))
+            return
+        # Non-Steam shortcut ID used by node-steam-user for named games.
+        games = [{"game_id": 15190414816125648896, "game_extra_info": custom_name}]
+        games.extend({"game_id": int(app_id)} for app_id in app_ids)
+        self.current_games_played = list(app_ids)
+        self.send(MsgProto(EMsg.ClientGamesPlayed), {"games_played": games})
+
     def login_token(self, username, steam_id, refresh_token):
         # CM requires a refresh token issued for platform SteamClient, not a web access token.
         try:

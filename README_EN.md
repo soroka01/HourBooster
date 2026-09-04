@@ -42,6 +42,10 @@ The password is never rendered on the control screen. The bot attempts to delete
 
 ## 🧭 Interface
 
+To set a custom Steam status name, stop the account and open **Settings → 🎮 Custom game** (the bot UI is in Russian). Enter one line of up to 64 characters, then start the account again. The custom name is sent first as a non-Steam game, followed by all configured App IDs in their original order. Each account stores its own name in SQLite; **Remove custom game** restores the normal list.
+
+This reports a non-Steam application status; it does not launch an `.exe` or rename library games. Steam privacy settings still control visibility. [Steam's non-Steam games guide](https://help.steampowered.com/en/faqs/view/4B8B-9697-2338-40EC).
+
 ```text
 /start
   └─ account list
