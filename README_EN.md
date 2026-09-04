@@ -59,7 +59,6 @@ The password is never rendered on the control screen. The bot attempts to delete
 | --- | --- |
 | `/start` | Open the account list |
 | `/menu` | Open the account list |
-| `/help` | Show brief instructions |
 | `/cancel` | Cancel a form or authentication-code input |
 
 ## 🏗️ Architecture

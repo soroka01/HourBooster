@@ -8,10 +8,11 @@ from typing import Optional, Tuple
 from aiogram import Bot, Router
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, Message
 
 from ..storage import Account, Database, StorageError, parse_game_ids
 from ..steam.steam_manager import LIVE_STATUSES, SessionStatus, SteamSessionManager
+from ..steam.game_names import GameNames
 from .states import AccountForm, GuardCode
 from .ui import (
     PAGE_SIZE,
@@ -34,12 +35,12 @@ class BoosterController:
         self.database = database
         self.sessions = sessions
         self.ui = SingleMessageUI(bot, database)
+        self.game_names = GameNames()
         self.router = Router(name="booster-controller")
         self._register_handlers()
 
     def _register_handlers(self) -> None:
         self.router.message.register(self.show_home_command, Command("start", "menu"))
-        self.router.message.register(self.show_help_command, Command("help"))
         self.router.message.register(self.cancel_command, Command("cancel"))
         self.router.callback_query.register(self.handle_callback)
 
@@ -80,10 +81,6 @@ class BoosterController:
         await state.clear()
         await self.render_home(self._chat_id(message), 0, start_refresh=True)
 
-    async def show_help_command(self, message: Message, state: FSMContext) -> None:
-        await state.clear()
-        await self.render_help(self._chat_id(message))
-
     async def cancel_command(self, message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         await state.clear()
@@ -110,10 +107,6 @@ class BoosterController:
             return
         if data == "new":
             await self.begin_add(chat_id, state)
-            return
-        if data == "help":
-            await state.clear()
-            await self.render_help(chat_id)
             return
         if data == "cancel":
             form_data = await state.get_data()
@@ -221,11 +214,12 @@ class BoosterController:
             await self.render_home(chat_id, page, True)
             return
 
+        names = await self.game_names.get_names(account.games)
         stats = self.database.get_account_stats(account.id)
         snapshot = self.sessions.get_snapshot(account.id)
         await self.ui.show_for_chat(
             chat_id,
-            account_text(account, stats, snapshot, detailed=detailed),
+            account_text(account, stats, snapshot, detailed=detailed, game_names=names),
             account_keyboard(account.id, snapshot, page),
         )
         if start_refresh and snapshot.status in LIVE_STATUSES:
@@ -236,21 +230,6 @@ class BoosterController:
             )
         elif snapshot.status not in LIVE_STATUSES:
             self.ui.stop_live_refresh(chat_id)
-
-    async def render_help(self, chat_id: int) -> None:
-        self.ui.stop_live_refresh(chat_id)
-        text = (
-            "<b>❓ Быстрая помощь</b>\n\n"
-            "1️⃣ Добавьте аккаунт: название, логин, пароль и Steam App ID.\n"
-            "2️⃣ Откройте карточку и нажмите «🚀 Запустить».\n"
-            "3️⃣ При запросе Steam Guard или email-кода отправьте его в чат.\n"
-            "4️⃣ Вся навигация и статус живут в одном редактируемом сообщении.\n\n"
-            "⏱ Время буста считается с успешного входа Steam и сохраняется в локальной SQLite-базе."
-        )
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="⬅️ К аккаунтам", callback_data="home:0")]]
-        )
-        await self.ui.show_for_chat(chat_id, text, keyboard)
 
     async def begin_add(self, chat_id: int, state: FSMContext) -> None:
         self.ui.stop_live_refresh(chat_id)

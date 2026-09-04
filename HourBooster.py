@@ -49,7 +49,6 @@ async def main() -> None:
         [
             BotCommand(command="start", description="🎮 Открыть аккаунты"),
             BotCommand(command="menu", description="🏠 Главное меню"),
-            BotCommand(command="help", description="❓ Помощь"),
             BotCommand(command="cancel", description="✖️ Отменить ввод"),
         ]
     )

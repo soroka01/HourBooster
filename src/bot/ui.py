@@ -68,7 +68,6 @@ def dashboard_keyboard(accounts: Iterable[Account], page: int, total: int) -> In
             [InlineKeyboardButton(text="➕ Добавить аккаунт", callback_data="new")],
             [
                 InlineKeyboardButton(text="🔄 Обновить", callback_data="home:{0}".format(page)),
-                InlineKeyboardButton(text="❓ Помощь", callback_data="help"),
             ],
         ]
     )
@@ -119,11 +118,19 @@ def account_keyboard(account_id: int, snapshot: SessionSnapshot, page: int) -> I
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def account_text(account: Account, stats: AccountStats, snapshot: SessionSnapshot, detailed: bool = False) -> str:
+def account_text(account: Account, stats: AccountStats, snapshot: SessionSnapshot, detailed: bool = False,
+                 game_names: Optional[Dict[int, str]] = None) -> str:
     text = "<b>🎮 {0}</b>\n\n".format(html.escape(account.title))
     text += "👤 Логин: <code>{0}</code>\n".format(html.escape(account.username))
     text += "📡 Статус: <b>{0}</b>\n".format(status_label(snapshot))
-    text += "🎯 Игры: <code>{0}</code>\n\n".format(", ".join(str(game) for game in account.games))
+    text += "🎯 Игры:\n"
+    for game in account.games:
+        name = (game_names or {}).get(game, "Название недоступно")
+        # Bound even a 50-game card in Telegram's UTF-16 message budget.
+        if len(name.encode("utf-16-le")) > 64:
+            name = name.encode("utf-16-le")[:60].decode("utf-16-le", errors="ignore") + "…"
+        text += "• {0} — <code>{1}</code>\n".format(html.escape(name), game)
+    text += "\n"
     text += "⏱ Всего буста: <b>{0}</b>\n".format(format_duration(stats.total_seconds))
 
     if stats.is_active:
