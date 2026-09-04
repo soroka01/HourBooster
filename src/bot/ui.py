@@ -3,6 +3,7 @@
 import asyncio
 import html
 import logging
+from contextvars import ContextVar
 from typing import Awaitable, Callable, Dict, Iterable, Optional
 
 from aiogram import Bot
@@ -142,6 +143,13 @@ def account_text(account: Account, stats: AccountStats, snapshot: SessionSnapsho
         text += "🔢 Завершённых сессий: <b>{0}</b>\n".format(stats.completed_sessions)
         text += "\n<i>Время начинает считаться только после успешного входа Steam.</i>"
 
+    if snapshot.guard_type == "confirmation":
+        text += "\n🔐 Подтвердите запрос Steam Hour Booster в Steam или по ссылке из письма. Вход продолжится автоматически."
+    elif snapshot.guard_type == "mobile":
+        text += "\n🔐 Введите код Steam Guard через кнопку ниже или подтвердите запрос Steam Hour Booster в приложении Steam."
+    elif snapshot.guard_type == "email":
+        text += "\n📧 Введите код из письма Steam через кнопку ниже."
+
     if snapshot.error:
         text += "\n\n⚠️ <b>Состояние:</b> {0}".format(html.escape(snapshot.error))
     return text
@@ -181,8 +189,46 @@ class SingleMessageUI:
         self._bot = bot
         self._database = database
         self._refresh_tasks: Dict[int, asyncio.Task] = {}
+        self._screen_versions: Dict[int, int] = {}
+        self._screen_context = ContextVar("screen_context", default=None)
+        self._message_locks: Dict[int, asyncio.Lock] = {}
+
+    async def navigation_middleware(self, handler, event, data):
+        message = getattr(event, "message", None) or event
+        if not hasattr(message, "chat") or getattr(event, "data", None) == "noop":
+            return await handler(event, data)
+        chat_id = int(message.chat.id)
+        version = self._screen_versions.get(chat_id, 0) + 1
+        self._screen_versions[chat_id] = version
+        context = self._screen_context.set((chat_id, version))
+        self.stop_live_refresh(chat_id)
+        try:
+            return await handler(event, data)
+        finally:
+            self._screen_context.reset(context)
+
+    def is_current_screen(self, chat_id: int) -> bool:
+        context = self._screen_context.get()
+        return context is None or context == (int(chat_id), self._screen_versions.get(int(chat_id), 0))
 
     async def show_for_chat(
+        self, chat_id: int, text: str, keyboard: InlineKeyboardMarkup
+    ) -> None:
+        async with self._message_locks.setdefault(int(chat_id), asyncio.Lock()):
+            if not self.is_current_screen(chat_id):
+                return
+            # Finish an in-flight Telegram edit before allowing the next screen
+            # to send its edit, even if its refresh task was just cancelled.
+            update = asyncio.create_task(self._show_for_chat(chat_id, text, keyboard))
+            try:
+                await asyncio.shield(update)
+            except asyncio.CancelledError:
+                try:
+                    await update
+                finally:
+                    raise
+
+    async def _show_for_chat(
         self, chat_id: int, text: str, keyboard: InlineKeyboardMarkup
     ) -> None:
         message_id = self._database.get_control_message(chat_id)
@@ -203,6 +249,8 @@ class SingleMessageUI:
             except TelegramForbiddenError:
                 raise
 
+        if not self.is_current_screen(chat_id):
+            return
         message = await self._bot.send_message(
             chat_id=chat_id,
             text=text,
@@ -225,14 +273,18 @@ class SingleMessageUI:
     def start_live_refresh(
         self, chat_id: int, renderer: Callable[[], Awaitable[None]], interval: int = 2
     ) -> None:
+        if not self.is_current_screen(chat_id):
+            return
         self.stop_live_refresh(chat_id)
         self._refresh_tasks[int(chat_id)] = asyncio.create_task(
             self._refresh_loop(int(chat_id), renderer, max(2, int(interval)))
         )
 
     def stop_live_refresh(self, chat_id: int) -> None:
+        if not self.is_current_screen(chat_id):
+            return
         task = self._refresh_tasks.pop(int(chat_id), None)
-        if task:
+        if task and task is not asyncio.current_task():
             task.cancel()
 
     async def _refresh_loop(
@@ -241,6 +293,9 @@ class SingleMessageUI:
         try:
             while True:
                 await asyncio.sleep(interval)
+                if (not self.is_current_screen(chat_id)
+                        or self._refresh_tasks.get(chat_id) is not asyncio.current_task()):
+                    return
                 await renderer()
         except asyncio.CancelledError:
             raise
@@ -249,4 +304,5 @@ class SingleMessageUI:
         except Exception:
             logger.exception("Live refresh failed for chat %s", chat_id)
         finally:
-            self._refresh_tasks.pop(chat_id, None)
+            if self._refresh_tasks.get(chat_id) is asyncio.current_task():
+                self._refresh_tasks.pop(chat_id, None)

@@ -26,7 +26,7 @@
 | Динамические аккаунты | Аккаунты добавляются через Telegram, без ограничения тремя записями |
 | Приватный доступ | Все messages и callbacks проходят проверку одного `allowed_user_id` |
 | Один control screen | Бот редактирует сохранённое сообщение вместо цепочки служебных ответов |
-| Steam Guard | Поддерживаются mobile two-factor и email auth codes |
+| Steam Guard | Код из приложения или email; подтверждение запроса в приложении |
 | Локальная статистика | SQLite хранит суммарное время и завершённые sessions |
 | Пагинация | Список выводится страницами по 6 аккаунтов |
 
@@ -70,6 +70,7 @@ src/
 ├── storage/
 │   └── database.py             # accounts, sessions, stats и UI state
 ├── steam/
+│   ├── auth.py                 # AuthenticationService + CM token login
 │   ├── game_names.py           # Steam app names and cache
 │   └── steam_manager.py        # SteamClient lifecycle и worker threads
 └── bot/
@@ -84,13 +85,13 @@ src/
 ```text
 Telegram button
       ↓
-SteamSessionManager → SteamClient.login()
+SteamSessionManager → AuthenticationService → Steam Guard → refresh token
       ↓
 Guard / email code, если Steam запросил его
       ↓
-EResult.OK → database.start_boost()
+TokenSteamClient.login_token() → EResult.OK → database.start_boost()
       ↓
-games_played(App IDs) → run_forever()
+games_played(App IDs) → connected session
       ↓
 logout/disconnect → database.stop_boost()
 ```
@@ -171,7 +172,7 @@ SQLite по умолчанию находится в `data/hour_booster.sqlite3`
 Локальный timer начинается только после `EResult.OK` от Steam. При обычной остановке или disconnect длительность до текущего момента добавляется в `total_boost_seconds`, а session помечается завершённой.
 
 > [!WARNING]
-> При завершении процесса бот не останавливает все Steam workers отдельным shutdown hook. Если в SQLite остаётся `active_since`, следующий запуск закрывает такую session своим текущим временем. Поэтому downtime между остановкой процесса и следующим запуском может попасть в статистику. Эти значения — локальный учёт работы бота, а не независимая или гарантированно точная Steam playtime.
+> При обычной остановке бот завершает Steam workers и фиксирует время сессий. При аварийном завершении, если в SQLite остаётся `active_since`, следующий запуск закрывает такую session своим текущим временем. Поэтому downtime между остановкой процесса и следующим запуском может попасть в статистику. Эти значения — локальный учёт работы бота, а не независимая или гарантированно точная Steam playtime.
 
 ## 🔁 Обновление
 
@@ -181,7 +182,9 @@ SQLite по умолчанию находится в `data/hour_booster.sqlite3`
 
 - Обновляется только открытая карточка с интервалом не меньше 2 секунд.
 - Названия игр загружаются из Steam и кэшируются; при недоступности названия отображается ID. Длинные названия сокращаются до лимита сообщения.
-- Используемый `steam==1.4.4` выполняет старый вход. Он может возвращать код 5 даже для данных, принятых современным API; переход на современную авторизацию ещё не реализован.
+- Вход выполняется через современный Steam AuthenticationService. Пароль передаётся в RSA-зашифрованном виде, а Steam-клиент входит по refresh token.
+- Подтвердите запрос Steam Hour Booster в приложении Steam или введите код через бота. Запрос действует до 5 минут. Токены не сохраняются в БД и не выводятся в сообщения.
+- Доступность входа зависит от Steam; семейные ограничения на игры продолжают действовать.
 
 ## 🩹 Решение проблем
 

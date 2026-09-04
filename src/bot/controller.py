@@ -37,6 +37,8 @@ class BoosterController:
         self.ui = SingleMessageUI(bot, database)
         self.game_names = GameNames()
         self.router = Router(name="booster-controller")
+        self.router.message.middleware(self.ui.navigation_middleware)
+        self.router.callback_query.middleware(self.ui.navigation_middleware)
         self._register_handlers()
 
     def _register_handlers(self) -> None:
@@ -84,7 +86,7 @@ class BoosterController:
     async def cancel_command(self, message: Message, state: FSMContext) -> None:
         data = await state.get_data()
         await state.clear()
-        account_id = self.sessions.cancel_pending(message.from_user.id)
+        account_id = self.sessions.cancel_pending(message.from_user.id, data.get("account_id"))
         await self._delete_input(message)
         if account_id:
             await self.render_account(self._chat_id(message), account_id, self._page(data.get("page")), True)
@@ -111,7 +113,7 @@ class BoosterController:
         if data == "cancel":
             form_data = await state.get_data()
             await state.clear()
-            account_id = self.sessions.cancel_pending(callback.from_user.id)
+            account_id = self.sessions.cancel_pending(callback.from_user.id, form_data.get("account_id"))
             if account_id:
                 await self.render_account(chat_id, account_id, self._page(form_data.get("page")), True)
             else:
@@ -215,6 +217,8 @@ class BoosterController:
             return
 
         names = await self.game_names.get_names(account.games)
+        if not self.ui.is_current_screen(chat_id):
+            return
         stats = self.database.get_account_stats(account.id)
         snapshot = self.sessions.get_snapshot(account.id)
         await self.ui.show_for_chat(
@@ -389,37 +393,31 @@ class BoosterController:
 
     async def _wait_for_login(self, chat_id: int, account_id: int, user_id: int, page: int, state: FSMContext) -> None:
         for _ in range(12):
+            if not self.ui.is_current_screen(chat_id):
+                return
             snapshot = self.sessions.get_snapshot(account_id)
             if snapshot.status != SessionStatus.CONNECTING:
                 break
             await asyncio.sleep(0.5)
 
+        if not self.ui.is_current_screen(chat_id):
+            return
         snapshot = self.sessions.get_snapshot(account_id)
         if snapshot.status in (SessionStatus.AWAITING_GUARD, SessionStatus.AWAITING_EMAIL):
             await state.set_state(GuardCode.waiting)
             await state.update_data(account_id=account_id, page=page)
-            if snapshot.status == SessionStatus.AWAITING_GUARD:
-                text = "<b>🔐 Требуется Steam Guard</b>\n\n📱 Отправьте код из мобильного приложения Steam."
-            else:
-                text = "<b>📧 Требуется код из email</b>\n\nОтправьте код, который прислал Steam."
-            await self.ui.show_for_chat(chat_id, text, form_keyboard())
-            return
-
+        else:
+            await state.clear()
         await self.render_account(chat_id, account_id, page, True)
 
     async def prompt_guard(self, chat_id: int, account_id: int, page: int, state: FSMContext) -> None:
         snapshot = self.sessions.get_snapshot(account_id)
-        if snapshot.status not in (SessionStatus.AWAITING_GUARD, SessionStatus.AWAITING_EMAIL):
-            await self.render_account(chat_id, account_id, page, True)
-            return
-        await state.clear()
-        await state.set_state(GuardCode.waiting)
-        await state.update_data(account_id=account_id, page=page)
-        if snapshot.status == SessionStatus.AWAITING_GUARD:
-            text = "<b>🔐 Требуется Steam Guard</b>\n\n📱 Отправьте код из мобильного приложения Steam."
+        if snapshot.status in (SessionStatus.AWAITING_GUARD, SessionStatus.AWAITING_EMAIL):
+            await state.set_state(GuardCode.waiting)
+            await state.update_data(account_id=account_id, page=page)
         else:
-            text = "<b>📧 Требуется код из email</b>\n\nОтправьте код, который прислал Steam."
-        await self.ui.show_for_chat(chat_id, text, form_keyboard())
+            await state.clear()
+        await self.render_account(chat_id, account_id, page, True)
 
     async def guard_code(self, message: Message, state: FSMContext) -> None:
         code = (message.text or "").strip()
@@ -431,10 +429,13 @@ class BoosterController:
             )
             return
 
-        snapshot = self.sessions.submit_guard_code(message.from_user.id, code)
+        snapshot = self.sessions.submit_guard_code(message.from_user.id, code, data.get("account_id"))
         if snapshot is None:
             await state.clear()
-            await self.render_home(self._chat_id(message), self._page(data.get("page")), True)
+            if data.get("account_id"):
+                await self.render_account(self._chat_id(message), int(data["account_id"]), self._page(data.get("page")), True)
+            else:
+                await self.render_home(self._chat_id(message), self._page(data.get("page")), True)
             return
 
         await self.ui.show_for_chat(

@@ -70,6 +70,7 @@ src/
 ├── storage/
 │   └── database.py             # accounts, sessions, stats, and UI state
 ├── steam/
+│   ├── auth.py                 # AuthenticationService + CM token login
 │   ├── game_names.py           # Steam app names and cache
 │   └── steam_manager.py        # SteamClient lifecycle and worker threads
 └── bot/
@@ -84,13 +85,13 @@ Account start flow:
 ```text
 Telegram button
       ↓
-SteamSessionManager → SteamClient.login()
+SteamSessionManager → AuthenticationService → Steam Guard → refresh token
       ↓
 Guard / email code when requested by Steam
       ↓
-EResult.OK → database.start_boost()
+TokenSteamClient.login_token() → EResult.OK → database.start_boost()
       ↓
-games_played(App IDs) → run_forever()
+games_played(App IDs) → connected session
       ↓
 logout/disconnect → database.stop_boost()
 ```
@@ -171,7 +172,7 @@ Recommendations:
 The local timer starts only after Steam returns `EResult.OK`. On a normal stop or disconnect, elapsed time is added to `total_boost_seconds` and the session is marked complete.
 
 > [!WARNING]
-> Process shutdown does not stop every Steam worker through a dedicated shutdown hook. When SQLite still contains `active_since`, the next launch closes that session using the new current time. Downtime between process termination and restart can therefore be included in the statistics. These values are local bot accounting, not an independent or guaranteed-accurate Steam playtime source.
+> Normal shutdown stops Steam workers and records session durations. After an unexpected termination, when SQLite still contains `active_since`, the next launch closes that session using the new current time. Downtime between process termination and restart can therefore be included in the statistics. These values are local bot accounting, not an independent or guaranteed-accurate Steam playtime source.
 
 ## 🔁 Updating
 
@@ -181,7 +182,9 @@ Back up SQLite, run `git pull`, and restart the bot. Existing accounts and stati
 
 - Only the open card refreshes, at intervals of at least two seconds.
 - Game names are fetched from Steam and cached; IDs remain visible when names are unavailable. Long names are shortened to fit the message limit.
-- `steam==1.4.4` uses legacy login, which can return code 5 even when modern authentication accepts the credentials. Modern authentication has not been implemented in the bot yet.
+- Login uses modern Steam AuthenticationService with an RSA-encrypted password, followed by a Steam client login using a refresh token.
+- Approve the Steam Hour Booster request in Steam or submit a Guard/email code through the bot within 5 minutes. Tokens are not saved in SQLite or displayed in messages.
+- Login availability depends on Steam; parental game restrictions still apply.
 
 ## 🩹 Troubleshooting
 

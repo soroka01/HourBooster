@@ -63,6 +63,7 @@ async def main(database_path: Path, setup: bool = False) -> None:
     try:
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
+        await asyncio.to_thread(sessions.shutdown)
         await bot.session.close()
         database.close()
 
