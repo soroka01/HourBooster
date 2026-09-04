@@ -1,2 +1,2 @@
-aiogram>=3.30.0,<4
+aiogram==3.31.0
 steam[client]==1.4.4
