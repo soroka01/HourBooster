@@ -7,7 +7,10 @@ from contextvars import ContextVar
 from typing import Awaitable, Callable, Dict, Iterable, Optional
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import (
+    TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError,
+    TelegramRetryAfter, TelegramServerError,
+)
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from ..storage import Account, AccountStats, Database
@@ -294,17 +297,42 @@ class SingleMessageUI:
     async def _refresh_loop(
         self, chat_id: int, renderer: Callable[[], Awaitable[None]], interval: int
     ) -> None:
+        failures = 0
+        delay = interval
         try:
             while True:
-                await asyncio.sleep(interval)
+                await asyncio.sleep(delay)
                 if (not self.is_current_screen(chat_id)
                         or self._refresh_tasks.get(chat_id) is not asyncio.current_task()):
                     return
-                await renderer()
+                try:
+                    await renderer()
+                except (TelegramNetworkError, TelegramServerError, TelegramRetryAfter) as error:
+                    failures += 1
+                    if isinstance(error, TelegramRetryAfter):
+                        delay = max(interval, error.retry_after)
+                    else:
+                        delay = min(60, max(2, interval) * 2 ** min(failures - 1, 5))
+                    logger.warning(
+                        "Не удалось обновить экран Telegram в чате %s (%s). "
+                        "Повтор через %s с, попытка %s. Steam-сессии не затронуты.",
+                        chat_id, type(error).__name__, delay, failures,
+                    )
+                    continue
+                if failures:
+                    logger.info(
+                        "Обновление экрана Telegram в чате %s восстановлено после %s ошибок. "
+                        "Повторный вход в Steam не выполнялся.", chat_id, failures,
+                    )
+                failures = 0
+                delay = interval
         except asyncio.CancelledError:
             raise
         except TelegramForbiddenError:
-            logger.info("Chat %s is no longer available for live refresh", chat_id)
+            logger.warning(
+                "Telegram запретил доступ к чату %s. Обновление экрана остановлено; "
+                "Steam-сессии не затронуты.", chat_id,
+            )
         except Exception:
             logger.exception("Live refresh failed for chat %s", chat_id)
         finally:

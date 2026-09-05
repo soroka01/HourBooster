@@ -130,6 +130,7 @@ SQLite по умолчанию находится в `data/hour_booster.sqlite3`
 | Нет доступа к боту | Совпадает ли Telegram ID с настройками SQLite |
 | Steam отклоняет login | Credentials и требуемый Guard/email code |
 | Сессия остаётся в `connecting` | Network access, Steam availability и logs в консоли |
+| `TelegramNetworkError` / `ServerDisconnectedError` при обновлении экрана | Это связь с Telegram. Бот повторяет обновление с паузой до 60 секунд и пишет о восстановлении в консоль; Steam-сессии не перезапускаются. При лимите Telegram учитывается `retry_after` |
 | Статистика выросла после restart | Ограничение recovery незакрытой session выше |
 | Не ставится `steam[client]` | Python version и platform build dependencies |
 

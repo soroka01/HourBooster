@@ -134,6 +134,7 @@ Back up SQLite, run `git pull`, and restart the bot. Existing accounts and stati
 | The bot denies access | Telegram user ID matches the SQLite settings |
 | Steam rejects login | Credentials and the requested Guard/email code |
 | A session remains `connecting` | Network access, Steam availability, and console logs |
+| `TelegramNetworkError` / `ServerDisconnectedError` during screen refresh | This affects Telegram connectivity. Refresh retries with delays up to 60 seconds and logs recovery without restarting Steam sessions. Telegram rate limits use the server's `retry_after` |
 | Statistics grow after restart | The interrupted-session recovery limitation above |
 | `steam[client]` does not install | Python version and platform build dependencies |
 
