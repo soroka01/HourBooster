@@ -3,6 +3,7 @@
 import asyncio
 import argparse
 import logging
+from contextlib import suppress
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher
@@ -10,6 +11,7 @@ from aiogram.types import BotCommand
 
 from src.bot.access_middleware import AccessMiddleware
 from src.bot.controller import BoosterController
+from src.bot.notifications import send_session_alerts
 from src.config_manager import load_config, ConfigurationError
 from src.storage import Database
 from src.steam.steam_manager import SteamSessionManager
@@ -60,10 +62,14 @@ async def main(database_path: Path, setup: bool = False) -> None:
     )
 
     logger.info("🎮 Steam Hour Booster запущен")
+    notifications = asyncio.create_task(send_session_alerts(bot, app_config.allowed_user_id, sessions.alerts))
     try:
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
         await asyncio.to_thread(sessions.shutdown)
+        notifications.cancel()
+        with suppress(asyncio.CancelledError):
+            await notifications
         await bot.session.close()
         database.close()
 

@@ -56,6 +56,10 @@ flowchart TD
 
 ## Interface
 
+An unexpected active Steam session disconnect or a Steam game-exit event sends the owner a separate message and logs the reason to the console. The open card stays in place. Manually stopping boost or shutting down the script normally does not send alerts. Delivery retries while Telegram is temporarily unavailable.
+
+When gameplay is interrupted, time accounting pauses while the Steam connection stays open. Game-exit detection requires a previously confirmed Steam playing state; another session blocking gameplay also triggers an alert. Profile visibility and privacy settings are not used for this check.
+
 To set a custom Steam status name, stop the account and open **Settings → 🎮 Custom game** (the bot UI is in Russian). Enter one line of up to 64 characters, then start the account again. The custom name is sent first as a non-Steam game, followed by all configured App IDs in their original order. Each account stores its own name in SQLite; **Remove custom game** restores the normal list.
 
 This reports a non-Steam application status; it does not launch an `.exe` or rename library games. Steam privacy settings still control visibility. [Steam's non-Steam games guide](https://help.steampowered.com/en/faqs/view/4B8B-9697-2338-40EC).

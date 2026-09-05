@@ -34,6 +34,7 @@ def format_duration(seconds: int) -> str:
 def status_label(snapshot: SessionSnapshot) -> str:
     labels = {
         SessionStatus.ACTIVE: "🟢 Буст идёт",
+        SessionStatus.PAUSED: "⏸️ Игра прервана",
         SessionStatus.CONNECTING: "🟡 Подключение",
         SessionStatus.AWAITING_GUARD: "🔐 Нужен Steam Guard",
         SessionStatus.AWAITING_EMAIL: "📧 Нужен email-код",
@@ -99,7 +100,7 @@ def dashboard_text(rows: Iterable[tuple], total_accounts: int) -> str:
 
 
 def account_keyboard(account_id: int, snapshot: SessionSnapshot, page: int) -> InlineKeyboardMarkup:
-    if snapshot.status in (SessionStatus.ACTIVE, SessionStatus.CONNECTING, SessionStatus.STOPPING):
+    if snapshot.status in (SessionStatus.ACTIVE, SessionStatus.CONNECTING, SessionStatus.STOPPING, SessionStatus.PAUSED):
         primary = InlineKeyboardButton(text="⏹️ Остановить", callback_data="stop:{0}:{1}".format(account_id, page))
     elif snapshot.status in (SessionStatus.AWAITING_GUARD, SessionStatus.AWAITING_EMAIL):
         primary = InlineKeyboardButton(text="🔐 Ввести код", callback_data="guard:{0}:{1}".format(account_id, page))

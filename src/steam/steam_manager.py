@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Optional
 
 from steam.client import EResult
+from steam.enums.emsg import EMsg
 from .auth import AuthError, SteamAuth, TokenSteamClient
 
 from ..storage import Account, Database
@@ -24,6 +25,7 @@ class SessionStatus:
     STOPPING = "stopping"
     STOPPED = "stopped"
     ERROR = "error"
+    PAUSED = "paused"
 
 
 LIVE_STATUSES = {
@@ -32,6 +34,7 @@ LIVE_STATUSES = {
     SessionStatus.AWAITING_EMAIL,
     SessionStatus.ACTIVE,
     SessionStatus.STOPPING,
+    SessionStatus.PAUSED,
 }
 
 
@@ -55,6 +58,9 @@ class _Session:
     boost_recorded: bool = False
 
     cancelled: threading.Event = field(default_factory=threading.Event)
+    was_active: bool = False
+    game_confirmed: bool = False
+    playing_blocked: bool = False
     codes: queue.Queue = field(default_factory=queue.Queue)
 
     def snapshot(self) -> SessionSnapshot:
@@ -81,6 +87,38 @@ class SteamSessionManager:
         self._sessions: Dict[int, _Session] = {}
         self._pending_by_user: Dict[int, _PendingLogin] = {}
         self._lock = threading.RLock()
+        self.alerts: queue.Queue = queue.Queue()
+
+    def _notify(self, session: _Session, message: str) -> None:
+        if not session.cancelled.is_set():
+            self.alerts.put((session.account.id, session.account.title, message))
+            logger.warning("Steam-аккаунт %s: %s", session.account.id, message)
+
+    def _playing_state(self, session: _Session, message) -> None:
+        with self._lock:
+            if session.cancelled.is_set():
+                return
+            blocked = bool(message.body.playing_blocked)
+            app_id = int(message.body.playing_app)
+            session.playing_blocked = blocked
+            lost_game = session.game_confirmed and not app_id
+            if session.was_active and (blocked or lost_game):
+                if session.status == SessionStatus.PAUSED:
+                    return
+                if session.boost_recorded:
+                    self._database.stop_boost(session.account.id)
+                    session.boost_recorded = False
+                session.status = SessionStatus.PAUSED
+                session.error = ("Steam заблокировал игру в этой сессии: аккаунт играет на другом устройстве."
+                                 if blocked else "Steam сообщил о выходе из игры.")
+                self._notify(session, session.error + " Учёт буста приостановлен; подключение сохранено.")
+            elif not blocked and app_id:
+                session.game_confirmed = True
+                if session.status == SessionStatus.PAUSED:
+                    self._database.start_boost(session.account.id)
+                    session.boost_recorded = True
+                    session.status = SessionStatus.ACTIVE
+                    session.error = ""
 
     def get_snapshot(self, account_id: int) -> SessionSnapshot:
         with self._lock:
@@ -194,6 +232,7 @@ class SteamSessionManager:
                 if pending and pending.account_id == session.account.id:
                     self._pending_by_user.pop(user_id, None)
             client = TokenSteamClient()
+            client.on(EMsg.ClientPlayingSessionState, lambda message: self._playing_state(session, message))
             session.client = client
             result = client.login_token(session.account.username, auth.steam_id, token)
             token = None
@@ -204,13 +243,18 @@ class SteamSessionManager:
             with self._lock:
                 if session.cancelled.is_set():
                     return
+                if session.playing_blocked:
+                    raise AuthError("Steam не разрешает запуск: аккаунт уже играет на другом устройстве.")
                 client.set_played_games(session.account.games, session.account.custom_game_name)
                 self._database.start_boost(session.account.id)
                 session.boost_recorded = True
                 session.status = SessionStatus.ACTIVE
+                session.was_active = True
             logger.info("Steam-сессия %s активна", session.account.id)
             while client.connected and client.logged_on and not session.cancelled.is_set():
                 client.sleep(0.2)
+            if not session.cancelled.is_set():
+                self._set_error(session, "Соединение аккаунта со Steam неожиданно завершилось.")
         except AuthError as error:
             if not session.cancelled.is_set():
                 self._set_error(session, str(error))
@@ -227,6 +271,8 @@ class SteamSessionManager:
                 except Exception:
                     logger.warning("Не удалось закрыть Steam-соединение аккаунта %s", session.account.id)
             with self._lock:
+                if session.was_active and not session.cancelled.is_set():
+                    self._notify(session, session.error or "Steam-сессия неожиданно завершилась.")
                 if session.boost_recorded:
                     self._database.stop_boost(session.account.id)
                 session.boost_recorded = False
