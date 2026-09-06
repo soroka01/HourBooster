@@ -90,7 +90,7 @@ Telegram settings live in the `app_settings` table in the account database. Stop
 .\.venv\Scripts\python.exe HourBooster.py --setup
 ```
 
-Token input is hidden. The command exits after saving; start the bot normally afterwards. The default is `data/hour_booster.sqlite3` relative to the project directory. Use `--database PATH` to select another database, including with `--setup`.
+Token input is visible and supports pasting with Ctrl+V. The command exits after saving; start the bot normally afterwards. The default is `data/hour_booster.sqlite3` relative to the project directory. Use `--database PATH` to select another database, including with `--setup`.
 
 ## Local data and security
 

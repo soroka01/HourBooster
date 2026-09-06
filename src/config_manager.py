@@ -2,7 +2,6 @@
 
 import sys
 from dataclasses import dataclass
-from getpass import getpass
 
 from aiogram.utils.token import TokenValidationError, validate_token
 
@@ -26,7 +25,7 @@ def load_config(database: Database, setup: bool = False) -> AppConfig:
         if not sys.stdin.isatty():
             raise ConfigurationError("Запустите HourBooster.py --setup в интерактивной консоли.")
         try:
-            token = getpass("Telegram bot token: ").strip()
+            token = input("Telegram bot token: ").strip()
             owner = input("Telegram owner user ID: ").strip()
         except (EOFError, KeyboardInterrupt):
             raise ConfigurationError("Настройка отменена.") from None

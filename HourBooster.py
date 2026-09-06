@@ -7,6 +7,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramNotFound, TelegramUnauthorizedError
 from aiogram.types import BotCommand
 
 from src.bot.access_middleware import AccessMiddleware
@@ -53,25 +54,36 @@ async def main(database_path: Path, setup: bool = False) -> None:
     dispatcher.callback_query.middleware(middleware)
     dispatcher.include_router(controller.router)
 
-    await bot.set_my_commands(
-        [
-            BotCommand(command="start", description="🎮 Открыть аккаунты"),
-            BotCommand(command="menu", description="🏠 Главное меню"),
-            BotCommand(command="cancel", description="✖️ Отменить ввод"),
-        ]
-    )
-
-    logger.info("🎮 Steam Hour Booster запущен")
-    notifications = asyncio.create_task(send_session_alerts(bot, app_config.allowed_user_id, sessions.alerts))
+    notifications = None
     try:
+        try:
+            await bot.set_my_commands(
+                [
+                    BotCommand(command="start", description="🎮 Открыть аккаунты"),
+                    BotCommand(command="menu", description="🏠 Главное меню"),
+                    BotCommand(command="cancel", description="✖️ Отменить ввод"),
+                ]
+            )
+        except (TelegramNotFound, TelegramUnauthorizedError):
+            raise ConfigurationError(
+                "Telegram отклонил запрос настройки бота (404/401). "
+                "Проверьте токен из @BotFather и сохраните его через HourBooster.py --setup."
+            ) from None
+        logger.info("🎮 Steam Hour Booster запущен")
+        notifications = asyncio.create_task(send_session_alerts(bot, app_config.allowed_user_id, sessions.alerts))
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
-        await asyncio.to_thread(sessions.shutdown)
-        notifications.cancel()
-        with suppress(asyncio.CancelledError):
-            await notifications
-        await bot.session.close()
-        database.close()
+        try:
+            await asyncio.to_thread(sessions.shutdown)
+            if notifications is not None:
+                notifications.cancel()
+                with suppress(asyncio.CancelledError):
+                    await notifications
+        finally:
+            try:
+                await bot.session.close()
+            finally:
+                database.close()
 
 
 if __name__ == "__main__":
