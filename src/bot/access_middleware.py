@@ -5,6 +5,8 @@ from typing import Any, Awaitable, Callable, Dict
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+from ..i18n import t
+
 
 class AccessMiddleware(BaseMiddleware):
     def __init__(self, allowed_user_id: int) -> None:
@@ -24,7 +26,7 @@ class AccessMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if isinstance(event, CallbackQuery):
-            await event.answer("🚫 Доступ только у владельца бота.", show_alert=True)
+            await event.answer(t("bot.access.denied_callback"), show_alert=True)
         elif isinstance(event, Message):
-            await event.answer("🚫 Этот бот настроен для личного использования владельцем.")
+            await event.answer(t("bot.access.denied_message"))
         return None

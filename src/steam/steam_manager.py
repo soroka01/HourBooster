@@ -14,6 +14,7 @@ from steam.enums.emsg import EMsg
 from .auth import AuthError, SteamAuth, THROTTLE_DELAY, TokenSteamClient, refresh_token_expiry
 from .guard import generate_code, seconds_to_next_window, steam_clock
 
+from ..i18n import Text, t
 from ..storage import Account, Database
 
 logger = logging.getLogger(__name__)
@@ -124,7 +125,7 @@ class _Session:
         return SessionSnapshot(
             account_id=self.account.id,
             status=self.status,
-            error=self.error,
+            error=str(self.error),
             guard_type=self.guard_type,
             boost_recorded=self.boost_recorded,
             reconnect_attempt=self.reconnect_attempt,
@@ -155,8 +156,9 @@ class _Stop(Exception):
 class _Retry(Exception):
     """A temporary failure; try again after a pause of at least ``min_delay`` seconds."""
 
-    def __init__(self, reason: str, min_delay: float = 0.0) -> None:
+    def __init__(self, reason: object, min_delay: float = 0.0) -> None:
         super().__init__(reason)
+        self.reason = reason  # a str or a lazily resolved Text
         self.min_delay = min_delay
 
 
@@ -168,11 +170,16 @@ class _AuthExpired(Exception):
         self.carried_code = carried_code
 
 
+def _message(error: Exception) -> object:
+    """The message of an exception, kept lazy (a Text) when it was raised with one."""
+    return error.args[0] if error.args else ""
+
+
 def _duration_text(seconds: float) -> str:
     seconds = max(0, int(seconds))
     if seconds >= 120:
-        return "{0} мин".format(seconds // 60)
-    return "{0} с".format(seconds)
+        return t("steam.duration.minutes", count=seconds // 60)
+    return t("steam.duration.seconds", count=seconds)
 
 
 def _fingerprint(account: Account) -> str:
@@ -199,10 +206,11 @@ class SteamSessionManager:
         self._next_logon_at = 0.0
         self.alerts: queue.Queue = queue.Queue()
 
-    def _notify(self, session: _Session, message: str, kind: str = "warning") -> None:
+    def _notify(self, session: _Session, message: object, kind: str = "warning") -> None:
+        message = str(message)
         if not session.cancelled.is_set():
             self.alerts.put((session.account.id, session.account.title, message, kind))
-            logger.warning("Steam-аккаунт %s: %s", session.account.id, message)
+            logger.warning(t("steam.log.account_alert", account=session.account.id, message=message))
 
     def _playing_state(self, session: _Session, client: TokenSteamClient, message) -> None:
         with self._lock:
@@ -223,9 +231,8 @@ class SteamSessionManager:
                 self._end_boost(session)
                 session.status = SessionStatus.PAUSED
                 session.blocked_pause = blocked
-                session.error = ("Steam заблокировал игру в этой сессии: аккаунт играет на другом устройстве."
-                                 if blocked else "Steam сообщил о выходе из игры.")
-                self._notify(session, session.error + " Учёт буста приостановлен; подключение сохранено.")
+                session.error = Text("steam.alert.blocked" if blocked else "steam.alert.left_game")
+                self._notify(session, t("steam.alert.boost_paused", reason=session.error))
             elif not blocked and app_id:
                 session.game_confirmed = True
                 if session.status == SessionStatus.PAUSED:
@@ -280,7 +287,7 @@ class SteamSessionManager:
                 self.start(account, user_id, background=True)
                 started += 1
         if started:
-            logger.info("Автозапуск аккаунтов после перезапуска: %s", started)
+            logger.info(t("steam.log.autostart", count=started))
         return started
 
     def _resolve_target(self, user_id: int, account_id: Optional[int]) -> Optional[int]:
@@ -350,11 +357,11 @@ class SteamSessionManager:
         except _Stop:
             pass
         except AuthError as error:
-            self._fail(session, str(error))
+            self._fail(session, _message(error))
         except Exception as error:
             # Do not include HTTP payloads, credentials or tokens in logs/UI.
-            logger.error("Ошибка Steam-сессии %s: %s", session.account.id, type(error).__name__)
-            self._fail(session, "Не удалось завершить вход или Steam-сессию. Повторите запуск.")
+            logger.error(t("steam.log.session_error", account=session.account.id, error=type(error).__name__))
+            self._fail(session, Text("steam.session.failed"))
         finally:
             self._finish(session)
 
@@ -367,7 +374,7 @@ class SteamSessionManager:
                 client = self._establish(session, user_id)
             except _Retry as retry:
                 strikes += 1
-                self._attempt_failed(session, str(retry))
+                self._attempt_failed(session, retry.reason)
                 delay = max(self._backoff(strikes), retry.min_delay)
                 continue
 
@@ -384,11 +391,7 @@ class SteamSessionManager:
                     session.client = None
             self._check_cancel(session)
             if reason is not None and reason in KICKED_RESULTS:
-                raise AuthError(
-                    "Steam закрыл сессию: аккаунт вошёл в Steam на другом устройстве или компьютере. "
-                    "Автопереподключение отключено, чтобы не вытеснять вас из Steam. "
-                    "Запустите аккаунт вручную, когда он освободится."
-                )
+                raise AuthError(Text("steam.session.kicked"))
             strikes = 0 if time.monotonic() - connected_at >= STABLE_AFTER else strikes + 1
             self._connection_lost(session, reason)
             delay = RECONNECT_FIRST_DELAY if strikes == 0 else self._backoff(strikes)
@@ -432,7 +435,7 @@ class SteamSessionManager:
             try:
                 close()
             except Exception:
-                logger.warning("Не удалось закрыть Steam-соединение")
+                logger.warning(t("steam.log.close_failed"))
         try:
             client.sleep(0.05)
         except Exception:
@@ -453,11 +456,11 @@ class SteamSessionManager:
             session.status = SessionStatus.RECONNECTING
             session.down_since = time.time()
             session.reconnect_attempt = 0
-            session.error = "Соединение со Steam потеряно. Переподключаюсь автоматически."
-            logger.warning("Steam-аккаунт %s: соединение потеряно%s; переподключение", session.account.id,
-                           "" if reason is None else " (Steam: {0})".format(int(reason)))
+            session.error = Text("steam.session.connection_lost")
+            detail = "" if reason is None else t("steam.log.connection_lost_detail", code=int(reason))
+            logger.warning(t("steam.log.connection_lost", account=session.account.id, detail=detail))
 
-    def _attempt_failed(self, session: _Session, reason: str) -> None:
+    def _attempt_failed(self, session: _Session, reason: object) -> None:
         with self._lock:
             if session.cancelled.is_set():
                 return
@@ -470,10 +473,9 @@ class SteamSessionManager:
             pending = self._pending.get(session.account.id)
             if pending and pending.session is session:
                 self._pending.pop(session.account.id, None)
-            session.error = "Нет связи со Steam: {0} Повторяю попытки.".format(
-                reason if reason.endswith(".") else reason + ".")
-            logger.warning("Steam-аккаунт %s: попытка переподключения %s не удалась: %s",
-                           session.account.id, session.reconnect_attempt, reason)
+            session.error = Text("steam.session.no_connection", reason=reason)
+            logger.warning(t("steam.log.reconnect_failed", account=session.account.id,
+                             attempt=session.reconnect_attempt, reason=reason))
             down = now - session.down_since
             cooled = (session.last_outage_alert is None
                       or time.monotonic() - session.last_outage_alert >= OUTAGE_ALERT_COOLDOWN)
@@ -481,14 +483,14 @@ class SteamSessionManager:
             if watched and not session.outage_alerted and down >= OUTAGE_ALERT_AFTER and cooled:
                 session.outage_alerted = True
                 session.last_outage_alert = time.monotonic()
-                self._notify(session, "Нет связи со Steam уже {0}. Продолжаю переподключаться автоматически "
-                                      "(попытка {1}).".format(_duration_text(down), session.reconnect_attempt))
+                self._notify(session, t("steam.alert.outage", duration=_duration_text(down),
+                                        attempt=session.reconnect_attempt))
 
     def _recovered(self, session: _Session) -> None:
         with self._lock:
             if session.outage_alerted and session.down_since is not None:
-                self._notify(session, "Соединение со Steam восстановлено через {0}.".format(
-                    _duration_text(time.time() - session.down_since)), "ok")
+                self._notify(session, t("steam.alert.restored",
+                                        duration=_duration_text(time.time() - session.down_since)), "ok")
             session.down_since = None
             session.retry_at = None
             session.reconnect_attempt = 0
@@ -507,23 +509,23 @@ class SteamSessionManager:
                     stored = self._authenticate(session, user_id)
                 except AuthError as error:
                     if error.transient:
-                        raise _Retry(str(error), error.retry_after) from None
+                        raise _Retry(_message(error), error.retry_after) from None
                     raise
                 fresh = True
             client, result = self._logon(session, stored)
             if result == EResult.OK:
                 break
             if result in FATAL_RESULTS:
-                raise AuthError("Steam не пускает этот аккаунт ({0}, код {1}).".format(result.name, int(result)))
+                raise AuthError(Text("steam.session.account_denied", name=result.name, code=int(result)))
             if result in TRANSIENT_RESULTS:
-                raise _Retry("Steam временно недоступен ({0}).".format(result.name),
+                raise _Retry(Text("steam.retry.unavailable", name=result.name),
                              THROTTLE_DELAY if result in THROTTLED_RESULTS else 0.0)
             with self._lock:
                 self._tokens.pop(account.id, None)
             stored = None
             if fresh:
-                raise AuthError("Steam отклонил вход по токену ({0}, код {1}).".format(result.name, int(result)))
-            logger.info("Steam-аккаунт %s: токен больше не принимается, вход по паролю", account.id)
+                raise AuthError(Text("steam.session.token_rejected", name=result.name, code=int(result)))
+            logger.info(t("steam.log.token_expired", account=account.id))
         try:
             self._activate(session, client)
         except BaseException:
@@ -562,11 +564,11 @@ class SteamSessionManager:
         try:
             result = client.login_token(account.username, stored.steam_id, stored.token, cancelled=session.cancelled)
         except Exception as error:
-            logger.warning("Сбой входа Steam-аккаунта %s: %s", account.id, type(error).__name__)
+            logger.warning(t("steam.log.logon_failed", account=account.id, error=type(error).__name__))
             self._dispose(client)
             with self._lock:
                 session.client = None
-            raise _Retry("Сбой соединения со Steam при входе.") from None
+            raise _Retry(Text("steam.retry.logon_failed")) from None
         if session.cancelled.is_set() or result != EResult.OK:
             self._dispose(client)
             with self._lock:
@@ -582,13 +584,13 @@ class SteamSessionManager:
             self._check_cancel(session)
             if session.playing_blocked:
                 if session.interactive:
-                    raise AuthError("Steam не разрешает запуск: аккаунт уже играет на другом устройстве.")
+                    raise AuthError(Text("steam.session.playing_elsewhere"))
                 # Reconnected (or restarted) while another device plays: stay online and resume when Steam frees it.
                 session.blocked_pause = True
                 session.was_active = True
                 session.ever_active = True
                 session.status = SessionStatus.PAUSED
-                session.error = "Аккаунт играет на другом устройстве. Учёт буста приостановлен; подключение сохранено."
+                session.error = Text("steam.alert.playing_elsewhere")
                 self._notify(session, session.error)
                 return
             client.set_played_games(session.account.games, session.account.custom_game_name)
@@ -598,7 +600,7 @@ class SteamSessionManager:
             session.error = ""
             session.was_active = True
             session.ever_active = True
-        logger.info("Steam-сессия %s активна", session.account.id)
+        logger.info(t("steam.log.session_active", account=session.account.id))
 
     # ----------------------------------------------------------- authentication
 
@@ -612,21 +614,20 @@ class SteamSessionManager:
                 token, steam_id = self._auth_round(session, user_id, interactive, carried)
             except _AuthExpired as expired:
                 if interactive and expired.carried_code is None and not account.shared_secret:
-                    raise AuthError("Время подтверждения входа истекло. Запустите аккаунт заново.") from None
+                    raise AuthError(Text("steam.session.login_expired")) from None
                 carried = expired.carried_code
                 continue
             stored = _StoredToken(_fingerprint(account), token, steam_id)
             with self._lock:
                 self._tokens[account.id] = stored
             return stored
-        raise AuthError("Запрос подтверждения входа в Steam постоянно истекает. Запустите аккаунт заново.")
+        raise AuthError(Text("steam.session.login_keeps_expiring"))
 
     def _spend_credential_auth(self, session: _Session) -> None:
         now = time.monotonic()
         session.credential_auths = [moment for moment in session.credential_auths if now - moment < 3600]
         if len(session.credential_auths) >= CREDENTIAL_AUTHS_PER_HOUR:
-            raise AuthError("Слишком частые повторные входы по паролю: Steam, похоже, не принимает токен. "
-                            "Проверьте аккаунт и запустите его вручную.")
+            raise AuthError(Text("steam.session.too_many_logins"))
         session.credential_auths.append(now)
 
     @staticmethod
@@ -659,7 +660,7 @@ class SteamSessionManager:
             while True:
                 self._check_cancel(session)
                 if deadline is not None and time.monotonic() >= deadline:
-                    raise AuthError("Время подтверждения входа истекло. Запустите аккаунт заново.")
+                    raise AuthError(Text("steam.session.login_expired"))
                 try:
                     code, is_auto = session.codes.get_nowait()
                 except queue.Empty:
@@ -676,20 +677,18 @@ class SteamSessionManager:
                             raise _AuthExpired(None if is_auto else code) from None
                         if not error.code:
                             # Steam wants an in-app confirmation, not a typed code.
-                            self._set_pending(session, user_id, guard_type, str(error))
+                            self._set_pending(session, user_id, guard_type, _message(error))
                             continue
                         if error.code not in (65, 88):
                             raise
                         if not is_auto:
-                            self._set_pending(session, user_id, guard_type, str(error))
+                            self._set_pending(session, user_id, guard_type, _message(error))
                         elif auto_budget:
                             auto_budget -= 1
                             next_auto_at = time.time() + seconds_to_next_window(steam_clock.now())
                         else:
-                            self._set_pending(
-                                session, user_id, guard_type,
-                                "Автоматический код Steam Guard не принят. Проверьте shared_secret и время "
-                                "на компьютере; введите код вручную.", alert=not interactive)
+                            self._set_pending(session, user_id, guard_type,
+                                              Text("steam.session.auto_code_rejected"), alert=not interactive)
                         continue
                 if next_auto_at is not None and time.time() >= next_auto_at:
                     next_auto_at = None
@@ -724,7 +723,7 @@ class SteamSessionManager:
         finally:
             auth.close()
 
-    def _set_pending(self, session: _Session, user_id: int, guard_type: str, message: str = "",
+    def _set_pending(self, session: _Session, user_id: int, guard_type: str, message: object = "",
                      alert: bool = False) -> None:
         with self._lock:
             if session.cancelled.is_set():
@@ -735,16 +734,13 @@ class SteamSessionManager:
             self._pending[session.account.id] = _PendingLogin(session.account.id, user_id, guard_type, session)
             if alert and not session.pending_alerted:
                 session.pending_alerted = True
-                hints = {
-                    "mobile": "нужен код Steam Guard (или подтверждение в приложении Steam)",
-                    "email": "нужен код из письма Steam",
-                }
-                self._notify(session, "Для входа {0}. Откройте аккаунт в боте.".format(
-                    hints.get(guard_type, "подтвердите вход в приложении Steam или по ссылке из письма")))
+                hint_keys = {"mobile": "steam.hint.mobile", "email": "steam.hint.email"}
+                hint = t(hint_keys.get(guard_type, "steam.hint.other"))
+                self._notify(session, t("steam.alert.guard_needed", hint=hint))
 
     # ------------------------------------------------------------------ endings
 
-    def _fail(self, session: _Session, message: str) -> None:
+    def _fail(self, session: _Session, message: object) -> None:
         with self._lock:
             if session.cancelled.is_set():
                 return

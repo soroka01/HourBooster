@@ -15,6 +15,8 @@ from steam.enums import EResult, EOSType
 from steam.enums.emsg import EMsg
 from steam.steamid import SteamID
 
+from ..i18n import Text
+
 
 # Steam is busy or throttling; the same request is worth repeating later without user action.
 TRANSIENT_CODES = frozenset({2, 3, 10, 16, 20, 44, 48, 84, 87})
@@ -64,14 +66,14 @@ class SteamAuth:
             code = int(response.headers.get("x-eresult", "1"))
             if code != 1:
                 messages = {
-                    5: "Steam не принял логин или пароль в современном API (код 5).",
-                    65: "Неверный код Steam Guard. Введите новый код.",
-                    88: "Неверный код Steam Guard. Введите новый код.",
-                    84: "Steam ограничил попытки входа. Повторите позже.",
-                    27: "Запрос входа истёк. Запустите аккаунт заново.",
+                    5: Text("steam.auth.bad_credentials"),
+                    65: Text("steam.auth.bad_code"),
+                    88: Text("steam.auth.bad_code"),
+                    84: Text("steam.auth.throttled"),
+                    27: Text("steam.auth.request_expired"),
                 }
                 raise AuthError(
-                    messages.get(code, "Steam отклонил авторизацию (код {0}).".format(code)), code,
+                    messages.get(code) or Text("steam.auth.rejected", code=code), code,
                     transient=code in TRANSIENT_CODES,
                     retry_after=THROTTLE_DELAY if code in THROTTLE_CODES else 0.0,
                 )
@@ -82,7 +84,7 @@ class SteamAuth:
             return body
         except (requests.RequestException, ValueError, KeyError):
             # HTTP exceptions may include request URLs; never expose auth payloads.
-            raise AuthError("Не удалось связаться с API авторизации Steam. Повторите позже.", transient=True) from None
+            raise AuthError(Text("steam.auth.unreachable"), transient=True) from None
 
     def begin(self, username, password):
         key = self._call("GetPasswordRSAPublicKey", {"account_name": username}, get=True)
@@ -112,11 +114,11 @@ class SteamAuth:
             return None
         if methods & {4, 5}:
             return "confirmation"
-        raise AuthError("Steam запросил неподдерживаемый способ подтверждения входа.")
+        raise AuthError(Text("steam.auth.unsupported_confirmation"))
 
     def submit_code(self, code):
         if self.code_type is None:
-            raise AuthError("Подтвердите вход в приложении Steam или по ссылке из письма.")
+            raise AuthError(Text("steam.auth.confirm_in_app"))
         self._call("UpdateAuthSessionWithSteamGuardCode", {
             "client_id": self.client_id, "steamid": str(self.steam_id),
             "code": code, "code_type": self.code_type,

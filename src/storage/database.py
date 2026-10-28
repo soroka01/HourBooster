@@ -8,6 +8,7 @@ from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from ..i18n import t
 from ..steam.guard import normalize_shared_secret
 
 
@@ -50,16 +51,16 @@ def parse_game_ids(raw_value: str) -> List[int]:
         if not value:
             continue
         if not value.isdigit() or int(value) <= 0:
-            raise StorageError("Укажите Steam App ID положительными числами через запятую.")
+            raise StorageError(t("core.storage.games.invalid"))
         game_id = int(value)
         if game_id not in seen:
             values.append(game_id)
             seen.add(game_id)
 
     if not values:
-        raise StorageError("Добавьте хотя бы один Steam App ID.")
+        raise StorageError(t("core.storage.games.empty"))
     if len(values) > 50:
-        raise StorageError("Для одного аккаунта можно указать не более 50 игр.")
+        raise StorageError(t("core.storage.games.too_many"))
     return values
 
 
@@ -143,7 +144,7 @@ class Database:
         try:
             games = tuple(int(value) for value in json.loads(row["games_json"]))
         except (TypeError, ValueError, json.JSONDecodeError) as error:
-            raise StorageError("Не удалось прочитать список игр аккаунта из базы данных.") from error
+            raise StorageError(t("core.storage.games.unreadable")) from error
 
         return Account(
             id=int(row["id"]),
@@ -165,11 +166,11 @@ class Database:
         title = title.strip()
         username = username.strip()
         if not title or len(title) > 48:
-            raise StorageError("Название аккаунта должно содержать от 1 до 48 символов.")
+            raise StorageError(t("core.storage.title.invalid"))
         if not username or len(username) > 128:
-            raise StorageError("Логин Steam должен содержать от 1 до 128 символов.")
+            raise StorageError(t("core.storage.username.invalid"))
         if not password or len(password) > 512:
-            raise StorageError("Пароль Steam должен содержать от 1 до 512 символов.")
+            raise StorageError(t("core.storage.password.invalid"))
 
         normalised_games = []
         seen = set()
@@ -177,17 +178,17 @@ class Database:
             try:
                 game_id = int(game)
             except (TypeError, ValueError) as error:
-                raise StorageError("Steam App ID должен быть числом.") from error
+                raise StorageError(t("core.storage.game_id.not_number")) from error
             if game_id <= 0:
-                raise StorageError("Steam App ID должен быть положительным.")
+                raise StorageError(t("core.storage.game_id.not_positive"))
             if game_id not in seen:
                 normalised_games.append(game_id)
                 seen.add(game_id)
 
         if not normalised_games:
-            raise StorageError("Добавьте хотя бы один Steam App ID.")
+            raise StorageError(t("core.storage.games.empty"))
         if len(normalised_games) > 50:
-            raise StorageError("Для одного аккаунта можно указать не более 50 игр.")
+            raise StorageError(t("core.storage.games.too_many"))
         return title, username, password, normalised_games
 
     def count_accounts(self) -> int:
@@ -246,16 +247,16 @@ class Database:
                     (title, username, password, json.dumps(games), now, now),
                 )
         except sqlite3.IntegrityError as error:
-            raise StorageError("Аккаунт с таким названием уже существует.") from error
+            raise StorageError(t("core.storage.title.duplicate")) from error
         account = self.get_account(int(cursor.lastrowid))
         if account is None:
-            raise StorageError("Не удалось создать аккаунт.")
+            raise StorageError(t("core.storage.account.create_failed"))
         return account
 
     def update_account(self, account_id: int, field: str, value: object) -> Account:
         account = self.get_account(account_id)
         if account is None:
-            raise StorageError("Аккаунт не найден.")
+            raise StorageError(t("core.storage.account.not_found"))
 
         title = account.title
         username = account.username
@@ -275,12 +276,12 @@ class Database:
         elif field == "custom_game_name":
             custom_game_name = str(value).strip()
             if len(custom_game_name) > 64 or any(ord(char) < 32 or ord(char) == 127 for char in custom_game_name):
-                raise StorageError("Название сторонней игры должно быть одной строкой до 64 символов.")
+                raise StorageError(t("core.storage.custom_game.invalid"))
         elif field == "shared_secret":
             raw_secret = str(value).strip()
             shared_secret = normalize_shared_secret(raw_secret) if raw_secret else ""
         else:
-            raise StorageError("Неизвестное поле аккаунта.")
+            raise StorageError(t("core.storage.field.unknown"))
 
         title, username, password, normalised_games = self._validate_account(title, username, password, games)
         try:
@@ -296,10 +297,10 @@ class Database:
                      shared_secret, self._now(), int(account_id)),
                 )
         except sqlite3.IntegrityError as error:
-            raise StorageError("Аккаунт с таким названием уже существует.") from error
+            raise StorageError(t("core.storage.title.duplicate")) from error
         updated = self.get_account(account_id)
         if updated is None:
-            raise StorageError("Не удалось обновить аккаунт.")
+            raise StorageError(t("core.storage.account.update_failed"))
         return updated
 
     def delete_account(self, account_id: int) -> bool:
@@ -362,7 +363,7 @@ class Database:
     def get_account_stats(self, account_id: int, now: Optional[int] = None) -> AccountStats:
         account = self.get_account(account_id)
         if account is None:
-            raise StorageError("Аккаунт не найден.")
+            raise StorageError(t("core.storage.account.not_found"))
         timestamp = self._now(now)
         current = max(0, timestamp - account.active_since) if account.active_since else 0
         with self._lock:

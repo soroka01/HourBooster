@@ -7,6 +7,8 @@ import queue
 
 from aiogram.exceptions import TelegramAPIError, TelegramNetworkError, TelegramRetryAfter, TelegramServerError
 
+from ..i18n import t
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,9 +33,9 @@ async def send_session_alerts(bot, owner_id: int, alerts: queue.Queue) -> None:
             except TelegramRetryAfter as error:
                 await asyncio.sleep(error.retry_after)
             except (TelegramNetworkError, TelegramServerError):
-                logger.warning("Уведомление об аккаунте %s ожидает восстановления Telegram; повтор через %s с", account_id, delay)
+                logger.warning(t("bot.log.alert_waiting", account=account_id, delay=delay))
                 await asyncio.sleep(delay)
                 delay = min(60, delay * 2)
             except TelegramAPIError as error:
-                logger.error("Не удалось отправить уведомление об аккаунте %s: %s", account_id, type(error).__name__)
+                logger.error(t("bot.log.alert_failed", account=account_id, error=type(error).__name__))
                 break

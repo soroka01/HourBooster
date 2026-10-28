@@ -10,6 +10,8 @@ from typing import NamedTuple, Optional
 
 from steam.guard import generate_twofactor_code_for_time, get_time_offset
 
+from ..i18n import t
+
 CODE_PERIOD = 30
 _OTPAUTH_SECRET = re.compile(r"[?&]secret=([A-Za-z2-7]+)")
 
@@ -29,9 +31,9 @@ def normalize_shared_secret(value: str) -> str:
     try:
         raw = base64.b64decode(text, validate=True)
     except (binascii.Error, ValueError):
-        raise GuardSecretError("shared_secret должен быть строкой base64 (например, из maFile).") from None
+        raise GuardSecretError(t("steam.guard.secret_not_base64")) from None
     if not 10 <= len(raw) <= 64:
-        raise GuardSecretError("shared_secret имеет неверную длину. Это поле «shared_secret» из maFile.")
+        raise GuardSecretError(t("steam.guard.secret_bad_length"))
     return base64.b64encode(raw).decode("ascii")
 
 
@@ -40,17 +42,15 @@ def parse_mafile(text: str) -> MaFile:
     try:
         data = json.loads((text or "").strip().lstrip("﻿"))
     except ValueError:
-        raise GuardSecretError(
-            "Файл не похож на maFile (возможно, он зашифрован: нужен файл без шифрования)."
-        ) from None
+        raise GuardSecretError(t("steam.guard.mafile_unreadable")) from None
     if not isinstance(data, dict):
-        raise GuardSecretError("Файл не похож на maFile.")
+        raise GuardSecretError(t("steam.guard.mafile_not_object"))
     account_name = data.get("account_name")
     secret = data.get("shared_secret")
     if not isinstance(account_name, str) or not account_name.strip():
-        raise GuardSecretError("В maFile нет поля account_name.")
+        raise GuardSecretError(t("steam.guard.mafile_no_account"))
     if not isinstance(secret, str) or not secret:
-        raise GuardSecretError("В maFile нет поля shared_secret.")
+        raise GuardSecretError(t("steam.guard.mafile_no_secret"))
     return MaFile(account_name.strip(), normalize_shared_secret(secret))
 
 
@@ -58,18 +58,18 @@ def extract_shared_secret(text: str) -> str:
     """Accept a bare shared_secret, an SDA maFile JSON body or an otpauth:// URI."""
     body = (text or "").strip().lstrip("﻿")
     if not body:
-        raise GuardSecretError("Пустое значение: пришлите shared_secret или содержимое maFile.")
+        raise GuardSecretError(t("steam.guard.empty"))
     if body.startswith("{"):
         return parse_mafile(body).shared_secret
     if body.lower().startswith("otpauth://"):
         match = _OTPAUTH_SECRET.search(body)
         if not match:
-            raise GuardSecretError("В otpauth-ссылке нет параметра secret.")
+            raise GuardSecretError(t("steam.guard.otpauth_no_secret"))
         encoded = match.group(1).upper()
         try:
             raw = base64.b32decode(encoded + "=" * (-len(encoded) % 8))
         except (binascii.Error, ValueError):
-            raise GuardSecretError("Не удалось прочитать secret из otpauth-ссылки.") from None
+            raise GuardSecretError(t("steam.guard.otpauth_unreadable")) from None
         return normalize_shared_secret(base64.b64encode(raw).decode("ascii"))
     return normalize_shared_secret(body)
 

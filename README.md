@@ -18,7 +18,7 @@ Steam Hour Booster is a Telegram bot for managing Steam accounts: it runs select
 > Passwords and the bot token are stored in the database in **plaintext**. See [Security & privacy](#-security--privacy).
 
 > [!NOTE]
-> The bot UI is in Russian.
+> The interface is available in English (default) and Russian: switch it with the 🌐 button on the main screen ([details](#language)).
 
 ## ✨ Features
 
@@ -43,8 +43,8 @@ flowchart TD
 ```
 
 - **Time accounting.** The local timer starts only after Steam returns `EResult.OK`. On a normal stop or disconnect, elapsed time is added to `total_boost_seconds` and the session is marked complete.
-- **Interruptions.** When gameplay is interrupted, time accounting pauses while the Steam connection stays open. Game-exit detection requires a previously confirmed Steam playing state. Profile visibility and privacy settings are not used for this check. If the account is playing on another device after a reconnect, the card shows "⏸️ Игра прервана" (game interrupted) and the bot tries to resume once Steam frees the account (behaviour depends on Steam).
-- **Reconnect.** When the Steam connection is lost, the bot reconnects automatically with exponential backoff from 2 s up to 60 s (plus jitter) until you press "⏹️ Остановить" (Stop). The first attempts use the refresh token, which is kept **only in memory**: it is never written to SQLite and is dropped when the program exits or the account's login/password is changed. Ordinary drops therefore need no Guard code. If Steam rejects the token, the bot signs in again with login and password. If the account has a `shared_secret` and Steam asks for the mobile code, the bot generates and enters it itself (on rejection it retries in the next 30-second window, up to 3 times; the local clock is aligned with Steam time). Email codes and in-app confirmations cannot be automated: the bot then sends an alert and waits. There is no 5-minute limit while reconnecting; it applies only to a manual first start.
+- **Interruptions.** When gameplay is interrupted, time accounting pauses while the Steam connection stays open. Game-exit detection requires a previously confirmed Steam playing state. Profile visibility and privacy settings are not used for this check. If the account is playing on another device after a reconnect, the card shows "⏸️ Game interrupted" and the bot tries to resume once Steam frees the account (behaviour depends on Steam).
+- **Reconnect.** When the Steam connection is lost, the bot reconnects automatically with exponential backoff from 2 s up to 60 s (plus jitter) until you press "⏹️ Stop". The first attempts use the refresh token, which is kept **only in memory**: it is never written to SQLite and is dropped when the program exits or the account's login/password is changed. Ordinary drops therefore need no Guard code. If Steam rejects the token, the bot signs in again with login and password. If the account has a `shared_secret` and Steam asks for the mobile code, the bot generates and enters it itself (on rejection it retries in the next 30-second window, up to 3 times; the local clock is aligned with Steam time). Email codes and in-app confirmations cannot be automated: the bot then sends an alert and waits. There is no 5-minute limit while reconnecting; it applies only to a manual first start.
 - **When it does not reconnect.** The bot deliberately does not reconnect when Steam reports that the account was logged in elsewhere (another client took the session; reconnecting would kick you out of your own Steam), on Steam errors such as a wrong password or a banned account (error plus alert; start manually), or after a manual Stop. If Steam rate-limits logins (EResult 84/87), the bot waits at least 5 minutes.
 - **Accounting during outages.** The outage gap is not counted, and each reconnect creates a new session record.
 - **Autostart.** The bot remembers the accounts you started with "🚀 Start" and did not stop by hand ("⏹️ Stop"); after the bot restarts (including a PC reboot) they start by themselves. The in-memory token is gone after a restart, so a code is needed: with a `shared_secret` the bot enters it itself, without one it sends an alert ("a code is needed to sign in…") and waits without the 5-minute limit. If the account is playing on another device at that moment, it waits in "⏸️ Game interrupted" instead of failing. An account stopped by an error (wrong password, logged in elsewhere) is not autostarted until you start it again. To turn autostart off for an account, press "⏹️ Stop" before closing the bot.
@@ -73,7 +73,7 @@ cd HourBooster
 
 ### Configuration
 
-No `.env` file is needed. On first launch, enter the Telegram bot token and owner ID in the console; they are saved in SQLite. Add Steam accounts through Telegram.
+No `.env` file is needed. On first launch, choose the interface language (English or Russian) and enter the Telegram bot token and owner ID in the console; they are saved in SQLite. Add Steam accounts through Telegram.
 
 ### Run
 
@@ -115,9 +115,9 @@ An account can have only one mobile authenticator: the Steam app on your phone s
 **How to give it to the bot**
 
 - One account: **✏️ Settings → 🛡 Steam Guard secret**: send the `shared_secret`, the whole text of the `.maFile`, or upload the `.maFile` as a document (up to 64 KB). If the file names a different Steam login, the bot rejects it. **✖️ Remove Guard secret** returns to manual code entry.
-- Many accounts at once: on the main screen press **🛡 Guard import (maFile)** and send several `.maFile` documents (from `%APPDATA%\steamguard-cli\maFiles\`). The bot matches each file's `account_name` with the stored Steam login and enables automatic codes; the per-file result is shown on screen.
+- Many accounts at once: on the main screen press **🛡 Import Guard (maFile)** and send several `.maFile` documents (from `%APPDATA%\steamguard-cli\maFiles\`). The bot matches each file's `account_name` with the stored Steam login and enables automatic codes; the per-file result is shown on screen.
 
-You do **not** need to keep steamguard-cli running after setup: the bot computes the codes itself (keep the `.maFile` files as a backup). Files from Steam Desktop Authenticator also work if you already have them. The "🛡 Steam Guard" line on the account card shows "auto" or "manual" (in Russian: «авто» / «вручную»).
+You do **not** need to keep steamguard-cli running after setup: the bot computes the codes itself (keep the `.maFile` files as a backup). Files from Steam Desktop Authenticator also work if you already have them. The "🛡 Steam Guard" line on the account card shows "auto" or "manual".
 
 ## ⚙️ Configuration
 
@@ -133,8 +133,16 @@ Token input is visible and supports pasting with Ctrl+V. The command exits after
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `--setup` | off | Save Telegram settings (token, owner ID) to SQLite and exit |
+| `--setup` | off | Save the interface language and Telegram settings (token, owner ID) to SQLite and exit |
 | `--database PATH` | `data/hour_booster.sqlite3` (relative to the project directory) | Use another SQLite database; works together with `--setup` |
+
+### Language
+
+The interface language is a setting stored in the same SQLite database (`app_settings`, key `language`): `en` (English, the default) or `ru` (Russian). It covers everything the program shows: bot screens, buttons, alerts, error messages, the command menu and the console output. Game names are fetched from Steam in the same language.
+
+- In Telegram: press the **🌐 Русский** / **🌐 English** button on the main screen. The switch applies at once everywhere and is saved.
+- In the console: the first question of `HourBooster.py --setup` asks for `en` or `ru`.
+- A database created before this setting existed starts in English.
 
 **Bot commands**
 
@@ -150,7 +158,8 @@ Token input is visible and supports pasting with Ctrl+V. The command exits after
 /start
   └─ account list
        ├─ ➕ add an account
-       ├─ 🛡 Guard import (maFile)
+       ├─ 🛡 Import Guard (maFile)
+       ├─ 🌐 language (English / Русский)
        └─ open an account card
             ├─ 🚀 start / ⏹ stop
             ├─ 🔐 enter Steam Guard or email code
@@ -169,6 +178,8 @@ start.bat               # Windows launcher: .venv, dependencies, start
 requirements.txt        # aiogram, steam[client]
 src/
 ├── config_manager.py   # Telegram settings handling
+├── i18n.py             # interface language setting and t() lookup
+├── locales/            # message catalogs: English and Russian
 ├── bot/                # Telegram layer: controller, UI, states, access check, alerts
 ├── steam/              # Steam login, session management, game names
 │   └── guard.py        # shared_secret, Steam Guard codes, Steam time
