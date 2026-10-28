@@ -1,8 +1,8 @@
 # 🎮 Steam Hour Booster
 
-> Telegram-панель для управления Steam-аккаунтами: запуск игр, Steam Guard, автоматическое переподключение и учёт времени сессий.
+> Telegram control panel for Steam accounts: run games, Steam Guard, automatic reconnect, and session time tracking.
 
-🌐 **Язык / Language:** [Русский](README.md) · [English](README_EN.md)
+🌐 **Language / Язык:** [English](README.md) · [Русский](README_RU.md)
 
 ![Python](https://img.shields.io/badge/python-3.14-blue?logo=python&logoColor=white)
 ![aiogram](https://img.shields.io/badge/aiogram-3.31.0-2CA5E0?logo=telegram&logoColor=white)
@@ -10,30 +10,30 @@
 ![SQLite](https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)
 
-## 📌 Обзор
+## 📌 Overview
 
-Steam Hour Booster — Telegram-бот для управления Steam-аккаунтами: запускает выбранные игры, принимает коды Steam Guard и ведёт учёт времени сессий. Доступ ограничен владельцем; настройки и статистика хранятся в SQLite.
+Steam Hour Booster is a Telegram bot for managing Steam accounts: it runs selected games, accepts Steam Guard codes, and tracks session time. Access is restricted to the owner; settings and statistics are stored in SQLite.
 
 > [!WARNING]
-> Пароли и токен бота хранятся в базе в **открытом виде**. См. [Безопасность и приватность](#-безопасность-и-приватность).
+> Passwords and the bot token are stored in the database in **plaintext**. See [Security & privacy](#-security--privacy).
 
 > [!NOTE]
-> Интерфейс бота — на русском языке.
+> The bot UI is in Russian.
 
-## ✨ Возможности
+## ✨ Features
 
-- Управление аккаунтами целиком через Telegram: добавление, редактирование, удаление с подтверждением.
-- Запуск и остановка игр по App ID; названия игр загружаются из Steam и кэшируются.
-- Вход через Steam AuthenticationService: подтверждение в приложении Steam или код Guard/email через бота.
-- Автоматическое переподключение при потере связи со Steam (например, из-за VPN): бот сам возвращает сессию, пока вы не нажмёте «Остановить».
-- Автоматические коды Steam Guard: по `shared_secret` из `.maFile` бот сам вводит мобильный код ([подробнее](#-автоматический-steam-guard)).
-- Автозапуск: после перезапуска бота или ПК аккаунты, которые работали и не были остановлены вручную, запускаются сами.
-- Кастомное название в статусе Steam (отображается как сторонняя игра перед настроенными App ID).
-- Статистика по каждому аккаунту и история завершённых сессий.
-- Уведомления владельцу о долгом обрыве связи и его восстановлении, о необходимости ввести код и об остановке сессии по причине.
-- Устойчивое обновление карточки: повторные попытки после временных сетевых ошибок Telegram.
+- Account management entirely through Telegram: add, edit, delete (with confirmation).
+- Start and stop games by App ID; game names are fetched from Steam and cached.
+- Login via Steam AuthenticationService: approve in the Steam app or enter a Guard/email code through the bot.
+- Automatic reconnect after losing the Steam connection (for example because of a VPN): the bot restores the session by itself until you press Stop.
+- Automatic Steam Guard codes: with a `shared_secret` from a `.maFile`, the bot generates and enters the mobile code itself ([details](#-automatic-steam-guard)).
+- Autostart: after the bot (or the PC) restarts, accounts that were running and not stopped by hand start again by themselves.
+- Custom Steam status name (shown as a non-Steam game, listed before the configured App IDs).
+- Per-account statistics and completed-session history.
+- Owner alerts on a long outage and its recovery, when a code is needed, and when a session is stopped for a reason.
+- Resilient live card refresh: retries after transient Telegram network errors.
 
-## 🏗️ Как это работает
+## 🏗️ How it works
 
 ```mermaid
 flowchart TD
@@ -42,48 +42,48 @@ flowchart TD
     C --> D["Games + session statistics"]
 ```
 
-- **Учёт времени.** Локальный timer начинается только после `EResult.OK` от Steam. При обычной остановке или disconnect длительность добавляется в `total_boost_seconds`, а session помечается завершённой.
-- **Прерывания.** При прерывании игры учёт времени приостанавливается, а подключение к Steam сохраняется. Выход из игры определяется после подтверждённого Steam игрового статуса. Видимость профиля и настройки приватности для этой проверки не используются. Если после переподключения аккаунт играет на другом устройстве, карточка показывает «⏸️ Игра прервана», а бот пытается возобновить игру, когда Steam освободит аккаунт (поведение зависит от Steam).
-- **Переподключение.** При потере связи со Steam бот переподключается сам с экспоненциальной паузой от 2 до 60 секунд (с небольшим случайным разбросом), пока вы не нажмёте «⏹️ Остановить». Первые попытки используют refresh token, который хранится **только в памяти** процесса: в SQLite он не записывается и сбрасывается при выходе из программы или при смене логина/пароля аккаунта. Поэтому для обычных обрывов код Guard не нужен. Если Steam отклонил токен, бот входит заново по логину и паролю. Если у аккаунта сохранён `shared_secret` и Steam запросил мобильный код, бот сам сгенерирует и введёт его (при отказе повторит в следующем 30-секундном окне, до 3 раз; локальные часы сверяются со временем Steam). Коды из email и подтверждения в приложении автоматизировать нельзя: тогда бот присылает уведомление и ждёт. При переподключении лимита в 5 минут нет; он действует только для ручного первого запуска.
-- **Когда автопереподключения нет.** Бот намеренно не переподключается, если Steam сообщил, что аккаунт вошёл в другом месте (сессию забрал другой клиент: переподключение выбило бы вас из вашего же Steam), при ошибках Steam вроде неверного пароля или блокировки аккаунта (ошибка + уведомление, запустите вручную) и после ручной остановки. Если Steam ограничивает частоту входов (EResult 84/87), бот ждёт не меньше 5 минут.
-- **Учёт при обрывах.** Время простоя не засчитывается, и каждое переподключение создаёт новую запись сессии.
-- **Автозапуск.** Бот помнит аккаунты, которые вы запустили кнопкой «🚀 Запустить» и не останавливали вручную («⏹️ Остановить»); после перезапуска бота (в том числе перезагрузки ПК) они стартуют сами. Токен после перезапуска пропал, поэтому нужен код: с `shared_secret` бот введёт его сам, без него пришлёт уведомление «Для входа нужен код…» и будет ждать без лимита в 5 минут. Если аккаунт в этот момент играет на другом устройстве, он ждёт в статусе «⏸️ Игра прервана», а не уходит в ошибку. Аккаунт, остановленный из-за ошибки (неверный пароль, вход на другом устройстве), в автозапуск не попадает, пока вы не запустите его снова. Выключить автозапуск аккаунта — нажать «⏹️ Остановить» перед закрытием бота.
-- **Уведомления.** Бот отправляет владельцу отдельное сообщение (открытая карточка остаётся на месте): если обрыв длится дольше ~90 секунд (не чаще раза в 30 минут на аккаунт) и после него — «восстановлено»; когда нужен код вручную; когда сессия остановлена по причине. Причина также пишется в консоль. Ручная остановка и штатное закрытие скрипта уведомлений не вызывают. При временной недоступности Telegram отправка повторяется.
-- **Кастомная игра.** Остановите аккаунт, откройте **Настройки → 🎮 Кастомная игра**, введите одну строку до 64 символов и снова запустите аккаунт. Название отправляется первым как сторонняя игра, затем идут настроенные App ID в исходном порядке. У каждого аккаунта своё название; **Убрать кастомную игру** возвращает обычный список. Это статус стороннего приложения: `.exe` не запускается, библиотечные игры не переименовываются. Видимость по-прежнему определяют настройки приватности Steam ([инструкция Steam о сторонних играх](https://help.steampowered.com/en/faqs/view/4B8B-9697-2338-40EC)).
+- **Time accounting.** The local timer starts only after Steam returns `EResult.OK`. On a normal stop or disconnect, elapsed time is added to `total_boost_seconds` and the session is marked complete.
+- **Interruptions.** When gameplay is interrupted, time accounting pauses while the Steam connection stays open. Game-exit detection requires a previously confirmed Steam playing state. Profile visibility and privacy settings are not used for this check. If the account is playing on another device after a reconnect, the card shows "⏸️ Игра прервана" (game interrupted) and the bot tries to resume once Steam frees the account (behaviour depends on Steam).
+- **Reconnect.** When the Steam connection is lost, the bot reconnects automatically with exponential backoff from 2 s up to 60 s (plus jitter) until you press "⏹️ Остановить" (Stop). The first attempts use the refresh token, which is kept **only in memory**: it is never written to SQLite and is dropped when the program exits or the account's login/password is changed. Ordinary drops therefore need no Guard code. If Steam rejects the token, the bot signs in again with login and password. If the account has a `shared_secret` and Steam asks for the mobile code, the bot generates and enters it itself (on rejection it retries in the next 30-second window, up to 3 times; the local clock is aligned with Steam time). Email codes and in-app confirmations cannot be automated: the bot then sends an alert and waits. There is no 5-minute limit while reconnecting; it applies only to a manual first start.
+- **When it does not reconnect.** The bot deliberately does not reconnect when Steam reports that the account was logged in elsewhere (another client took the session; reconnecting would kick you out of your own Steam), on Steam errors such as a wrong password or a banned account (error plus alert; start manually), or after a manual Stop. If Steam rate-limits logins (EResult 84/87), the bot waits at least 5 minutes.
+- **Accounting during outages.** The outage gap is not counted, and each reconnect creates a new session record.
+- **Autostart.** The bot remembers the accounts you started with "🚀 Start" and did not stop by hand ("⏹️ Stop"); after the bot restarts (including a PC reboot) they start by themselves. The in-memory token is gone after a restart, so a code is needed: with a `shared_secret` the bot enters it itself, without one it sends an alert ("a code is needed to sign in…") and waits without the 5-minute limit. If the account is playing on another device at that moment, it waits in "⏸️ Game interrupted" instead of failing. An account stopped by an error (wrong password, logged in elsewhere) is not autostarted until you start it again. To turn autostart off for an account, press "⏹️ Stop" before closing the bot.
+- **Alerts.** The bot sends the owner a separate message (the open card stays in place): when an outage lasts longer than ~90 s (at most once per 30 minutes per account) and a "restored" message after it; when a manual code is needed; and when a session is stopped for a reason. The reason is also logged to the console. Manual stop and normal shutdown send no alerts. Delivery retries while Telegram is unavailable.
+- **Custom game.** Stop the account, open **Settings → 🎮 Custom game**, enter one line of up to 64 characters, then start the account again. The name is sent first as a non-Steam game, followed by the configured App IDs in their original order. Each account stores its own name; **Remove custom game** restores the normal list. This reports a non-Steam application status; it does not launch an `.exe` or rename library games. Steam privacy settings still control visibility ([Steam's non-Steam games guide](https://help.steampowered.com/en/faqs/view/4B8B-9697-2338-40EC)).
 
 > [!WARNING]
-> При обычной остановке бот завершает Steam workers и фиксирует время сессий. При аварийном завершении, если в SQLite остаётся `active_since`, следующий запуск закрывает такую session своим текущим временем, поэтому downtime между остановкой процесса и следующим запуском может попасть в статистику. Эти значения — локальный учёт работы бота, а не независимая или гарантированно точная Steam playtime.
+> Normal shutdown stops Steam workers and records session durations. After an unexpected termination, when SQLite still contains `active_since`, the next launch closes that session using the new current time, so downtime between termination and restart can end up in the statistics. These values are local bot accounting, not an independent or guaranteed-accurate Steam playtime source.
 
-## 🚀 Быстрый старт
+## 🚀 Quick start
 
-### Требования
+### Requirements
 
 - Python 3.14;
-- Telegram-бот, созданный через [@BotFather](https://t.me/BotFather);
-- числовой Telegram ID владельца;
-- Steam-аккаунты, которыми вы вправе управлять;
-- системная среда, в которой устанавливается `steam[client]`.
+- a Telegram bot created through [@BotFather](https://t.me/BotFather);
+- the owner's numeric Telegram user ID;
+- Steam accounts you are authorized to manage;
+- an environment where `steam[client]` can be installed.
 
-### Установка
+### Installation
 
 ```powershell
 git clone https://github.com/soroka01/HourBooster.git
 cd HourBooster
 ```
 
-### Настройка
+### Configuration
 
-Файл `.env` не нужен. При первом запуске введите токен Telegram-бота и ID владельца в консоли; они сохранятся в SQLite. Steam-аккаунты добавляются через Telegram.
+No `.env` file is needed. On first launch, enter the Telegram bot token and owner ID in the console; they are saved in SQLite. Add Steam accounts through Telegram.
 
-### Запуск
+### Run
 
-Windows: [start.bat](start.bat) создаёт `.venv`, устанавливает зависимости и запускает бота.
+Windows: [start.bat](start.bat) creates `.venv`, installs dependencies, and starts the bot.
 
 ```powershell
 .\start.bat
 ```
 
-Ручной эквивалент:
+Manual equivalent:
 
 ```powershell
 python -m venv .venv
@@ -91,7 +91,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe HourBooster.py
 ```
 
-Linux и macOS:
+Linux and macOS:
 
 ```bash
 python3 -m venv .venv
@@ -99,138 +99,138 @@ python3 -m venv .venv
 .venv/bin/python HourBooster.py
 ```
 
-## 🛡 Автоматический Steam Guard
+## 🛡 Automatic Steam Guard
 
-`shared_secret` — секрет мобильного аутентификатора Steam, из которого считаются коды Guard. С ним бот сам вводит код при входе и переподключении, и вам не нужно открывать приложение Steam.
+`shared_secret` is the secret of the Steam mobile authenticator from which Guard codes are computed. With it, the bot enters the code itself at login and reconnect, so you do not need to open the Steam app.
 
-**Как получить `shared_secret`**
+**How to get `shared_secret`**
 
-1. Скачайте [steamguard-cli](https://github.com/dyc3/steamguard-cli/releases) — на Windows это файл `steamguard-windows-x86_64.exe` (проект развивается; Steam Desktop Authenticator заброшен и с новым входом Steam часто не получает код подтверждения).
-2. В PowerShell, в папке с файлом, выполните `.\steamguard-windows-x86_64.exe setup`. Введите логин и пароль аккаунта, код Steam Guard из письма (если Steam его запросит) и в конце код подтверждения: Steam присылает его по SMS на привязанный номер или на почту аккаунта, программа сама пишет, куда именно. Привязанный телефон для этого больше не обязателен. Не запускайте `setup` много раз подряд: у Steam есть лимиты на попытки.
-3. **Запишите код восстановления (R12345)**, который программа покажет в конце, и храните его офлайн.
-4. Повторите для каждого аккаунта. Файлы `<steamid>.maFile` лежат в `%APPDATA%\steamguard-cli\maFiles\`: сделайте их копию и не шифруйте (команду `encrypt` не запускайте), бот не читает зашифрованные файлы.
+1. Download [steamguard-cli](https://github.com/dyc3/steamguard-cli/releases): on Windows it is `steamguard-windows-x86_64.exe` (the project is maintained; Steam Desktop Authenticator is abandoned and often never receives the confirmation code with Steam's new login).
+2. In PowerShell, in the folder with the file, run `.\steamguard-windows-x86_64.exe setup`. Enter the account's login and password, the Steam Guard code from the email (if Steam asks for it) and, at the end, the confirmation code: Steam sends it by SMS to the attached number or to the account's email, and the program tells you which. An attached phone is no longer required. Do not run `setup` many times in a row: Steam limits the attempts.
+3. **Write down the revocation code (R12345)** that the program shows at the end and keep it offline.
+4. Repeat for every account. The `<steamid>.maFile` files are in `%APPDATA%\steamguard-cli\maFiles\`: back them up and do not encrypt them (do not run the `encrypt` command), the bot cannot read encrypted files.
 
-У аккаунта может быть только один мобильный аутентификатор: приложение Steam на телефоне перестанет выдавать коды. Если аутентификатор уже подключён, `setup` предложит перенести его (по SMS) или снять по коду восстановления. После подключения нового аутентификатора Steam может на время ограничить обмены и торговую площадку.
+An account can have only one mobile authenticator: the Steam app on your phone stops producing codes. If an authenticator is already attached, `setup` offers to transfer it (by SMS) or to remove it with the revocation code. After a new authenticator is added, Steam may restrict trades and the market for a while.
 
-**Как передать боту**
+**How to give it to the bot**
 
-- Один аккаунт: **✏️ Настроить → 🛡 Steam Guard secret** — отправьте `shared_secret`, весь текст `.maFile` или загрузите `.maFile` документом (до 64 КБ). Если в файле указан другой логин Steam, бот откажет. Кнопка **✖️ Убрать Guard secret** возвращает ручной ввод кодов.
-- Много аккаунтов сразу: на главном экране нажмите **🛡 Импорт Guard (maFile)** и отправьте сразу несколько `.maFile` документами (папка `%APPDATA%\steamguard-cli\maFiles\`). Бот сопоставит `account_name` каждого файла с сохранённым логином Steam и включит автокод; итог по файлам показывается на экране.
+- One account: **✏️ Settings → 🛡 Steam Guard secret**: send the `shared_secret`, the whole text of the `.maFile`, or upload the `.maFile` as a document (up to 64 KB). If the file names a different Steam login, the bot rejects it. **✖️ Remove Guard secret** returns to manual code entry.
+- Many accounts at once: on the main screen press **🛡 Guard import (maFile)** and send several `.maFile` documents (from `%APPDATA%\steamguard-cli\maFiles\`). The bot matches each file's `account_name` with the stored Steam login and enables automatic codes; the per-file result is shown on screen.
 
-После настройки steamguard-cli **не нужно держать запущенным**: бот считает коды сам (файлы `.maFile` сохраните как резервную копию). Подойдут и файлы из Steam Desktop Authenticator, если они у вас уже есть. В карточке аккаунта строка «🛡 Steam Guard» показывает «авто» или «вручную».
+You do **not** need to keep steamguard-cli running after setup: the bot computes the codes itself (keep the `.maFile` files as a backup). Files from Steam Desktop Authenticator also work if you already have them. The "🛡 Steam Guard" line on the account card shows "auto" or "manual" (in Russian: «авто» / «вручную»).
 
-## ⚙️ Конфигурация
+## ⚙️ Configuration
 
-Настройки Telegram хранятся в таблице `app_settings` той же SQLite-базы, что и аккаунты. Для изменения токена или ID владельца остановите бота и выполните:
+Telegram settings live in the `app_settings` table of the same SQLite database as the accounts. Stop the bot before changing its token or owner ID:
 
 ```powershell
 .\.venv\Scripts\python.exe HourBooster.py --setup
 ```
 
-Токен вводится открыто; его можно вставить через Ctrl+V. После сохранения команда завершится; запустите бота обычным способом.
+Token input is visible and supports pasting with Ctrl+V. The command exits after saving; start the bot normally afterwards.
 
-**Параметры командной строки**
+**Command-line options**
 
-| Параметр | По умолчанию | Описание |
+| Option | Default | Description |
 | --- | --- | --- |
-| `--setup` | выкл. | Сохранить настройки Telegram (токен, ID владельца) в SQLite и выйти |
-| `--database PATH` | `data/hour_booster.sqlite3` (относительно каталога проекта) | Использовать другую SQLite-базу; работает вместе с `--setup` |
+| `--setup` | off | Save Telegram settings (token, owner ID) to SQLite and exit |
+| `--database PATH` | `data/hour_booster.sqlite3` (relative to the project directory) | Use another SQLite database; works together with `--setup` |
 
-**Команды бота**
+**Bot commands**
 
-| Команда | Действие |
+| Command | Action |
 | --- | --- |
-| `/start` | Открыть список аккаунтов |
-| `/menu` | Открыть список аккаунтов |
-| `/cancel` | Отменить форму или ввод auth code |
+| `/start` | Open the account list |
+| `/menu` | Open the account list |
+| `/cancel` | Cancel a form or authentication-code input |
 
-**Карточка аккаунта**
+**Account card**
 
 ```text
 /start
-  └─ список аккаунтов
-       ├─ ➕ добавить аккаунт
-       ├─ 🛡 импорт Guard (maFile)
-       └─ открыть карточку
-            ├─ 🚀 запустить / ⏹ остановить
-            ├─ 🔐 ввести Steam Guard или email code
-            ├─ 📊 статистика
-            ├─ ✏️ изменить название, login, пароль, Guard secret, App ID или кастомную игру
-            └─ 🗑 удалить с подтверждением
+  └─ account list
+       ├─ ➕ add an account
+       ├─ 🛡 Guard import (maFile)
+       └─ open an account card
+            ├─ 🚀 start / ⏹ stop
+            ├─ 🔐 enter Steam Guard or email code
+            ├─ 📊 statistics
+            ├─ ✏️ edit title, username, password, Guard secret, App IDs, or custom game
+            └─ 🗑 delete with confirmation
 ```
 
-**Обновление:** сохраните резервную копию SQLite, выполните `git pull` и перезапустите бота. Существующие аккаунты и статистика остаются в БД. Импорт аккаунтов из INI удалён.
+**Updating:** back up SQLite, run `git pull`, and restart the bot. Existing accounts and statistics remain in the database. INI account import has been removed.
 
-## 🗂️ Структура проекта
+## 🗂️ Project structure
 
 ```text
-HourBooster.py          # точка входа, аргументы CLI (--setup, --database)
-start.bat               # запуск в Windows: .venv, зависимости, старт
+HourBooster.py          # entry point, CLI arguments (--setup, --database)
+start.bat               # Windows launcher: .venv, dependencies, start
 requirements.txt        # aiogram, steam[client]
 src/
-├── config_manager.py   # работа с настройками Telegram
-├── bot/                # Telegram-слой: контроллер, UI, состояния, проверка доступа, уведомления
-├── steam/              # вход в Steam, управление сессиями, названия игр
-│   └── guard.py        # shared_secret, коды Steam Guard, время Steam
-└── storage/            # база данных SQLite
-data/                   # SQLite-база времени выполнения (создаётся при запуске)
+├── config_manager.py   # Telegram settings handling
+├── bot/                # Telegram layer: controller, UI, states, access check, alerts
+├── steam/              # Steam login, session management, game names
+│   └── guard.py        # shared_secret, Steam Guard codes, Steam time
+└── storage/            # SQLite database
+data/                   # runtime SQLite database (created on launch)
 ```
 
-## 🔒 Безопасность и приватность
+## 🔒 Security & privacy
 
-SQLite по умолчанию находится в `data/hour_booster.sqlite3` и содержит:
+By default, SQLite lives at `data/hour_booster.sqlite3` and contains:
 
-- токен Telegram-бота и ID владельца;
-- названия аккаунтов, Steam logins и **plaintext passwords**;
-- `shared_secret` (если задан) в открытом виде рядом с паролем;
-- списки App ID и кастомные названия игр;
-- суммарное время и отметку `active_since`;
-- историю завершённых sessions;
-- ID control message для каждого Telegram chat.
+- the Telegram bot token and owner ID;
+- account titles, Steam usernames, and **plaintext passwords**;
+- `shared_secret` (if set), in plaintext next to the password;
+- App ID lists and custom game names;
+- accumulated time and the `active_since` timestamp;
+- completed-session history;
+- the control-message ID for each Telegram chat.
 
-Рекомендации:
+Recommendations:
 
-- ограничьте доступ к каталогу проекта средствами операционной системы;
-- не помещайте базу в публичные backups;
-- отзовите Telegram token при подозрении на утечку;
-- не полагайтесь на удаление messages как на единственную защиту credentials;
-- `shared_secret` достаточно, чтобы генерировать коды Steam Guard, поэтому относитесь к базе как к секрету;
-- Telegram удаляет присланное сообщение или файл с `.maFile` лишь по возможности, а серверы Telegram уже могли его видеть, поэтому отправляйте секрет только в личном чате с ботом;
-- перед удалением аккаунта сделайте backup, если нужна его статистика.
+- restrict operating-system access to the project directory;
+- keep the database out of public backups;
+- revoke the Telegram token if exposure is suspected;
+- do not rely on message deletion as the only credential protection;
+- `shared_secret` is enough to generate Steam Guard codes, so treat the database as a secret;
+- Telegram deletes a pasted message or uploaded `.maFile` on a best-effort basis only, and Telegram's servers may already have seen it, so send the secret only in your private chat with the bot;
+- back up the database before deleting an account if its statistics matter.
 
-Пароль передаётся Steam в RSA-зашифрованном виде, затем Steam-клиент входит по refresh token. Refresh token хранится только в памяти (в SQLite не записывается и сбрасывается при выходе из программы), не выводится в сообщения. `shared_secret` тоже нигде не показывается и не пишется в логи.
+The password is sent to Steam RSA-encrypted; the Steam client then logs in with a refresh token. The refresh token is kept in memory only (never written to SQLite, dropped when the program exits) and is not displayed in messages. `shared_secret` is likewise never displayed or logged.
 
-## ⚠️ Ограничения
+## ⚠️ Limitations
 
-- Обновляется только открытая карточка с интервалом не меньше 2 секунд.
-- Названия игр загружаются из Steam и кэшируются; при недоступности названия отображается ID. Длинные названия сокращаются до лимита сообщения.
-- При ручном первом запуске подтвердите запрос Steam Hour Booster в приложении Steam или введите код через бота в течение 5 минут. При автоматическом переподключении этого лимита нет.
-- Коды из email и подтверждения в приложении Steam нельзя автоматизировать: бот присылает уведомление и ждёт.
-- Доступность входа зависит от Steam; семейные ограничения на игры продолжают действовать.
+- Only the open card refreshes, at intervals of at least two seconds.
+- Game names are fetched from Steam and cached; IDs remain visible when names are unavailable. Long names are shortened to fit the message limit.
+- On a manual first start, approve the Steam Hour Booster request in Steam or submit a Guard/email code through the bot within 5 minutes. Automatic reconnect has no such limit.
+- Email codes and in-app confirmations cannot be automated: the bot sends an alert and waits.
+- Login availability depends on Steam; parental game restrictions still apply.
 
-### Решение проблем
+### Troubleshooting
 
-| Симптом | Что проверить |
+| Symptom | Check |
 | --- | --- |
-| Ошибка конфигурации | Повторите `HourBooster.py --setup` |
-| Нет доступа к боту | Совпадает ли Telegram ID с настройками SQLite |
-| Steam отклоняет login | Credentials и требуемый Guard/email code |
-| Сессия остаётся в `connecting` | Network access, Steam availability и logs в консоли |
-| `steamguard-cli setup` ждёт SMS-код, а он не приходит | Это сторона Steam и оператора: на российские номера SMS бывают недоставляемы. Подождите 15–30 минут, не нажимайте Enter подряд и не закрывайте окно. Если код не пришёл, уберите номер с аккаунта (Steam → Данные аккаунта → Номер телефона; при отсутствии доступа к номеру — форма поддержки Steam) и повторите `setup`: Steam пришлёт код на почту. Код восстановления R… записывайте до подтверждения |
-| Автокод Steam Guard не принят | Принадлежит ли `shared_secret`/`.maFile` именно этому аккаунту, точность часов компьютера; подождите следующее 30-секундное окно |
-| Аккаунт постоянно переподключается | Нестабильность VPN или сети; смотрите логи. Уведомление об обрыве приходит через ~90 секунд |
-| Вход выполнен на другом устройстве | Steam забрал сессию другому клиенту; бот не переподключается сам, запустите аккаунт вручную |
-| `TelegramNetworkError` / `ServerDisconnectedError` при обновлении экрана | Это связь с Telegram. Бот повторяет обновление с паузой до 60 секунд и пишет о восстановлении в консоль; Steam-сессии не перезапускаются. При лимите Telegram учитывается `retry_after` |
-| Статистика выросла после restart | Ограничение recovery незакрытой session выше |
-| Не ставится `steam[client]` | Python version и platform build dependencies |
+| Configuration error | Run `HourBooster.py --setup` again |
+| The bot denies access | Telegram user ID matches the SQLite settings |
+| Steam rejects login | Credentials and the requested Guard/email code |
+| A session remains `connecting` | Network access, Steam availability, and console logs |
+| `steamguard-cli setup` waits for an SMS code that never arrives | That is Steam's and the carrier's side: SMS to Russian numbers is sometimes not delivered. Wait 15–30 minutes, do not press Enter repeatedly and keep the window open. If nothing arrives, remove the phone number from the account (Steam → Account details → Phone number; without access to the number use Steam Support's form) and run `setup` again: Steam then sends the code by email. Write down the R… revocation code before confirming |
+| The automatic Steam Guard code is rejected | Whether the `shared_secret`/`.maFile` belongs to that exact account, the computer's clock accuracy; wait for the next 30-second window |
+| The account keeps reconnecting | VPN or network instability; check the logs. An outage alert arrives after ~90 seconds |
+| Logged in on another device | Steam gave the session to another client; the bot does not reconnect by itself, start the account manually |
+| `TelegramNetworkError` / `ServerDisconnectedError` during screen refresh | This affects Telegram connectivity. Refresh retries with delays up to 60 seconds and logs recovery without restarting Steam sessions. Telegram rate limits use the server's `retry_after` |
+| Statistics grow after restart | The interrupted-session recovery limitation above |
+| `steam[client]` does not install | Python version and platform build dependencies |
 
-## 📄 Лицензия
+## 📄 License
 
-[GNU GPL v3.0](LICENSE). Версии, опубликованные до смены лицензии, остаются под MIT.
+[GNU GPL v3.0](LICENSE). Versions published before the change remain under MIT.
 
-## 💬 Поддержка
+## 💬 Support
 
-Можно [форкнуть репозиторий](https://github.com/soroka01/HourBooster/fork) и доработать под себя. Если проект пригодился, поставьте [Star](https://github.com/soroka01/HourBooster) — так я увижу, что он был кому-то полезен.
+Feel free to [fork this repository](https://github.com/soroka01/HourBooster/fork) and adapt it. If it helped you, leave a [Star](https://github.com/soroka01/HourBooster) so I can see it was useful.
 
 ---
 
