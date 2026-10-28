@@ -4,9 +4,11 @@ import json
 import sqlite3
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
+
+from ..steam.guard import normalize_shared_secret
 
 
 class StorageError(ValueError):
@@ -18,13 +20,15 @@ class Account:
     id: int
     title: str
     username: str
-    password: str
+    password: str = dataclass_field(repr=False)
     games: Tuple[int, ...]
     total_boost_seconds: int
     active_since: Optional[int]
     created_at: int
     updated_at: int
     custom_game_name: str = ""
+    shared_secret: str = dataclass_field(default="", repr=False)
+    autostart: bool = False
 
 
 @dataclass(frozen=True)
@@ -93,7 +97,9 @@ class Database:
                 active_since INTEGER,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
-                custom_game_name TEXT NOT NULL DEFAULT ''
+                custom_game_name TEXT NOT NULL DEFAULT '',
+                shared_secret TEXT NOT NULL DEFAULT '',
+                autostart INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS boost_sessions (
@@ -122,6 +128,10 @@ class Database:
         columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(accounts)")}
         if "custom_game_name" not in columns:
             self._connection.execute("ALTER TABLE accounts ADD COLUMN custom_game_name TEXT NOT NULL DEFAULT ''")
+        if "shared_secret" not in columns:
+            self._connection.execute("ALTER TABLE accounts ADD COLUMN shared_secret TEXT NOT NULL DEFAULT ''")
+        if "autostart" not in columns:
+            self._connection.execute("ALTER TABLE accounts ADD COLUMN autostart INTEGER NOT NULL DEFAULT 0")
         self._connection.commit()
 
     @staticmethod
@@ -146,6 +156,8 @@ class Database:
             created_at=int(row["created_at"]),
             updated_at=int(row["updated_at"]),
             custom_game_name=str(row["custom_game_name"]),
+            shared_secret=str(row["shared_secret"]),
+            autostart=bool(row["autostart"]),
         )
 
     @staticmethod
@@ -201,6 +213,26 @@ class Database:
             ).fetchone()
         return self._row_to_account(row) if row else None
 
+    def set_autostart(self, account_id: int, enabled: bool) -> None:
+        """Remember whether the owner wants this account running, so a restart can resume it."""
+        with self._lock, self._connection:
+            self._connection.execute(
+                "UPDATE accounts SET autostart = ? WHERE id = ?", (1 if enabled else 0, int(account_id))
+            )
+
+    def list_autostart_accounts(self) -> List[Account]:
+        with self._lock:
+            rows = self._connection.execute("SELECT * FROM accounts WHERE autostart = 1 ORDER BY id").fetchall()
+        return [self._row_to_account(row) for row in rows]
+
+    def find_accounts_by_username(self, username: str) -> List[Account]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM accounts WHERE username = ? COLLATE NOCASE ORDER BY id",
+                (username.strip(),),
+            ).fetchall()
+        return [self._row_to_account(row) for row in rows]
+
     def create_account(self, title: str, username: str, password: str, games: Sequence[int]) -> Account:
         title, username, password, games = self._validate_account(title, username, password, games)
         now = self._now()
@@ -230,6 +262,7 @@ class Database:
         password = account.password
         games: Sequence[int] = account.games
         custom_game_name = account.custom_game_name
+        shared_secret = account.shared_secret
 
         if field == "title":
             title = str(value)
@@ -243,6 +276,9 @@ class Database:
             custom_game_name = str(value).strip()
             if len(custom_game_name) > 64 or any(ord(char) < 32 or ord(char) == 127 for char in custom_game_name):
                 raise StorageError("Название сторонней игры должно быть одной строкой до 64 символов.")
+        elif field == "shared_secret":
+            raw_secret = str(value).strip()
+            shared_secret = normalize_shared_secret(raw_secret) if raw_secret else ""
         else:
             raise StorageError("Неизвестное поле аккаунта.")
 
@@ -252,10 +288,12 @@ class Database:
                 self._connection.execute(
                     """
                     UPDATE accounts
-                    SET title = ?, username = ?, password = ?, games_json = ?, custom_game_name = ?, updated_at = ?
+                    SET title = ?, username = ?, password = ?, games_json = ?, custom_game_name = ?,
+                        shared_secret = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (title, username, password, json.dumps(normalised_games), custom_game_name, self._now(), int(account_id)),
+                    (title, username, password, json.dumps(normalised_games), custom_game_name,
+                     shared_secret, self._now(), int(account_id)),
                 )
         except sqlite3.IntegrityError as error:
             raise StorageError("Аккаунт с таким названием уже существует.") from error

@@ -6,11 +6,13 @@ import logging
 from typing import Optional, Tuple
 
 from aiogram import Bot, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from ..storage import Account, Database, StorageError, parse_game_ids
+from ..steam.guard import GuardSecretError, extract_shared_secret, parse_mafile
 from ..steam.steam_manager import LIVE_STATUSES, SessionStatus, SteamSessionManager
 from ..steam.game_names import GameNames
 from .states import AccountForm, GuardCode
@@ -24,9 +26,13 @@ from .ui import (
     delete_keyboard,
     edit_keyboard,
     form_keyboard,
+    import_keyboard,
 )
 
 logger = logging.getLogger(__name__)
+
+MAX_GUARD_FILE_BYTES = 64 * 1024
+MAX_IMPORT_LINES = 15
 
 
 class BoosterController:
@@ -36,6 +42,7 @@ class BoosterController:
         self.sessions = sessions
         self.ui = SingleMessageUI(bot, database)
         self.game_names = GameNames()
+        self._import_lock = asyncio.Lock()
         self.router = Router(name="booster-controller")
         self.router.message.middleware(self.ui.navigation_middleware)
         self.router.callback_query.middleware(self.ui.navigation_middleware)
@@ -51,6 +58,7 @@ class BoosterController:
         self.router.message.register(self.add_password, AccountForm.add_password)
         self.router.message.register(self.add_games, AccountForm.add_games)
         self.router.message.register(self.edit_value, AccountForm.edit_value)
+        self.router.message.register(self.import_mafiles, AccountForm.import_mafiles)
         self.router.message.register(self.guard_code, GuardCode.waiting)
         self.router.message.register(self.unknown_message, StateFilter(None))
 
@@ -64,6 +72,20 @@ class BoosterController:
             await message.delete()
         except Exception:
             pass
+
+    async def _download_text(self, message: Message) -> str:
+        """Text of a small uploaded document, downloaded in memory; never logged or echoed."""
+        document = message.document
+        if document.file_size is not None and document.file_size > MAX_GUARD_FILE_BYTES:
+            raise GuardSecretError("Файл слишком большой для maFile (максимум 64 КБ).")
+        try:
+            buffer = await self.bot.download(document)
+        except TelegramAPIError:
+            raise GuardSecretError("Не удалось скачать файл из Telegram. Попробуйте ещё раз.") from None
+        raw = buffer.read() if buffer is not None else b""
+        if len(raw) > MAX_GUARD_FILE_BYTES:
+            raise GuardSecretError("Файл слишком большой для maFile (максимум 64 КБ).")
+        return raw.decode("utf-8", errors="replace")
 
     @staticmethod
     def _parse_callback(data: str, expected_parts: int) -> Optional[Tuple[str, ...]]:
@@ -109,6 +131,9 @@ class BoosterController:
             return
         if data == "new":
             await self.begin_add(chat_id, state)
+            return
+        if data == "import_guard":
+            await self.begin_import(chat_id, state)
             return
         if data == "cancel":
             form_data = await state.get_data()
@@ -177,6 +202,17 @@ class BoosterController:
                     return
                 if self.database.get_account(account_id):
                     self.database.update_account(account_id, "custom_game_name", "")
+                await self.show_edit_menu(chat_id, account_id, page, state)
+            return
+        if data.startswith("clear_secret:"):
+            parts = self._parse_callback(data, 3)
+            if parts:
+                account_id, page = int(parts[1]), self._page(parts[2])
+                if self.sessions.has_live_session(account_id):
+                    await self.render_account(chat_id, account_id, page, True)
+                    return
+                if self.database.get_account(account_id):
+                    self.database.update_account(account_id, "shared_secret", "")
                 await self.show_edit_menu(chat_id, account_id, page, state)
             return
         if data.startswith("delete:"):
@@ -331,6 +367,67 @@ class BoosterController:
         await state.clear()
         await self.render_account(self._chat_id(message), account.id, 0, True)
 
+    async def begin_import(self, chat_id: int, state: FSMContext) -> None:
+        self.ui.stop_live_refresh(chat_id)
+        await state.clear()
+        if not self.database.list_accounts(0, 1)[1]:
+            await self.render_home(chat_id, 0, True)
+            return
+        await state.set_state(AccountForm.import_mafiles)
+        await state.update_data(page=0, import_lines=[])
+        await self._render_import(chat_id, [])
+
+    async def _render_import(self, chat_id: int, lines: list, hint: str = "") -> None:
+        text = (
+            "<b>🛡 Импорт Steam Guard</b>\n\n"
+            "Отправьте один или несколько файлов <code>.maFile</code> документами (их создаёт steamguard-cli "
+            "в папке <code>%APPDATA%\\steamguard-cli\\maFiles</code>). Файлы не должны быть зашифрованы. Бот сам сопоставит "
+            "<code>account_name</code> из файла с логином Steam сохранённого аккаунта и включит для него "
+            "автоматический Steam Guard. Сообщения будут удалены, если Telegram разрешит это действие."
+        )
+        if lines:
+            text += "\n\n<b>Результат:</b>\n" + "\n".join(lines)
+        if hint:
+            text += "\n\n" + hint
+        await self.ui.show_for_chat(chat_id, text, import_keyboard())
+
+    async def _import_one(self, message: Message) -> list:
+        try:
+            mafile = parse_mafile(await self._download_text(message))
+        except GuardSecretError as error:
+            name = html.escape((message.document.file_name or "файл")[:40])
+            return ["⚠️ {0}: не прочитан — {1}".format(name, html.escape(str(error)))]
+        accounts = self.database.find_accounts_by_username(mafile.account_name)
+        if not accounts:
+            return ["⚠️ нет аккаунта с логином {0}".format(html.escape(mafile.account_name[:64]))]
+        results = []
+        for account in accounts:
+            try:
+                self.database.update_account(account.id, "shared_secret", mafile.shared_secret)
+            except (ValueError, StorageError) as error:
+                results.append("⚠️ {0}: {1}".format(html.escape(account.title), html.escape(str(error))))
+            else:
+                results.append("✅ {0}".format(html.escape(account.title)))
+        return results
+
+    async def import_mafiles(self, message: Message, state: FSMContext) -> None:
+        await self._delete_input(message)
+        chat_id = self._chat_id(message)
+        # Albums arrive as separate messages; serialize them so the result list stays complete.
+        async with self._import_lock:
+            if await state.get_state() != AccountForm.import_mafiles.state:
+                return
+            data = await state.get_data()
+            lines = list(data.get("import_lines") or [])
+            hint = ""
+            if message.document is None:
+                hint = "⚠️ Пришлите файл <code>.maFile</code> документом. Текст здесь не принимается."
+            else:
+                lines.extend(await self._import_one(message))
+                lines = lines[-MAX_IMPORT_LINES:]
+                await state.update_data(import_lines=lines)
+            await self._render_import(chat_id, lines, hint)
+
     async def show_edit_menu(self, chat_id: int, account_id: int, page: int, state: FSMContext) -> None:
         account = self.database.get_account(account_id)
         if account is None:
@@ -344,9 +441,17 @@ class BoosterController:
         await state.clear()
         text = (
             "<b>✏️ Настройки: {0}</b>\n\n"
-            "Выберите поле. Пароль никогда не показывается на экране."
-        ).format(html.escape(account.title))
-        await self.ui.show_for_chat(chat_id, text, edit_keyboard(account_id, page, bool(account.custom_game_name)))
+            "🛡 Steam Guard: {1}\n\n"
+            "Выберите поле. Пароль и secret никогда не показываются на экране."
+        ).format(
+            html.escape(account.title),
+            "авто (secret сохранён)" if account.shared_secret else "вручную",
+        )
+        await self.ui.show_for_chat(
+            chat_id,
+            text,
+            edit_keyboard(account_id, page, bool(account.custom_game_name), bool(account.shared_secret)),
+        )
 
     async def begin_edit_field(
         self, chat_id: int, account_id: int, field: str, page: int, state: FSMContext
@@ -357,6 +462,12 @@ class BoosterController:
             "username": "👤 Отправьте новый логин Steam.",
             "password": "🔑 Отправьте новый пароль Steam. Сообщение будет удалено, если это возможно.",
             "games": "🎯 Отправьте Steam App ID через запятую, например <code>570,730</code>.",
+            "shared_secret": (
+                "🛡 Отправьте <code>shared_secret</code> из файла <code>.maFile</code> (steamguard-cli), весь текст файла "
+                "<code>.maFile</code> или загрузите сам <code>.maFile</code> документом. "
+                "Дальше бот сам будет вводить код Steam Guard при входе. "
+                "Сообщение будет удалено, если Telegram разрешит это действие."
+            ),
             "custom_game_name": "🎮 Отправьте название сторонней игры одной строкой (до 64 символов). Оно будет первым в списке игр Steam. Например: <code>Моя игра</code>.",
         }
         if account is None or field not in prompts:
@@ -390,7 +501,20 @@ class BoosterController:
                 raise StorageError("Введите название или используйте кнопку «Убрать кастомную игру» в настройках.")
             if field == "games":
                 value = parse_game_ids(value)
+            if field == "shared_secret":
+                text = await self._download_text(message) if message.document else value
+                body = text.strip().lstrip("\ufeff")
+                if body.startswith("{"):
+                    mafile = parse_mafile(body)
+                    account = self.database.get_account(account_id)
+                    if account is not None and mafile.account_name.casefold() != account.username.casefold():
+                        raise GuardSecretError("maFile принадлежит другому логину Steam, проверьте файл.")
+                    value = mafile.shared_secret
+                else:
+                    value = extract_shared_secret(text)
             self.database.update_account(account_id, field, value)
+            if field in ("password", "username"):
+                self.sessions.forget_account(account_id)
         except (KeyError, ValueError, StorageError) as error:
             await self.ui.show_for_chat(
                 self._chat_id(message),
@@ -494,5 +618,6 @@ class BoosterController:
             await self.render_account(chat_id, account_id, page, True)
             return
         self.database.delete_account(account_id)
+        self.sessions.forget_account(account_id)
         await state.clear()
         await self.render_home(chat_id, page, True)

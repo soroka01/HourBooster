@@ -71,6 +71,7 @@ async def main(database_path: Path, setup: bool = False) -> None:
             ) from None
         logger.info("🎮 Steam Hour Booster запущен")
         notifications = asyncio.create_task(send_session_alerts(bot, app_config.allowed_user_id, sessions.alerts))
+        sessions.autostart(app_config.allowed_user_id)
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
         try:

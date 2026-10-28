@@ -1,4 +1,4 @@
-"""Separate owner alerts for unexpected Steam session interruptions."""
+"""Separate owner alerts for Steam session problems and recoveries."""
 
 import asyncio
 import html
@@ -13,11 +13,15 @@ logger = logging.getLogger(__name__)
 async def send_session_alerts(bot, owner_id: int, alerts: queue.Queue) -> None:
     while True:
         try:
-            account_id, title, reason = alerts.get_nowait()
+            item = alerts.get_nowait()
         except queue.Empty:
             await asyncio.sleep(0.5)
             continue
-        text = "⚠️ <b>Steam: {0}</b>\n\n{1}".format(html.escape(title), html.escape(reason))
+        # Older producers put 3-tuples without a kind; those are warnings.
+        account_id, title, reason = item[:3]
+        kind = item[3] if len(item) > 3 else "warning"
+        icon = "✅" if kind == "ok" else "⚠️"
+        text = "{0} <b>Steam: {1}</b>\n\n{2}".format(icon, html.escape(title), html.escape(reason))
         delay = 2
         while True:
             try:

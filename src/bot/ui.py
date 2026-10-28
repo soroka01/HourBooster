@@ -3,6 +3,8 @@
 import asyncio
 import html
 import logging
+import math
+import time
 from contextvars import ContextVar
 from typing import Awaitable, Callable, Dict, Iterable, Optional
 
@@ -31,11 +33,19 @@ def format_duration(seconds: int) -> str:
     return "{0:02d}:{1:02d}:{2:02d}".format(hours, minutes, seconds)
 
 
+def format_outage(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds >= 3600:
+        return format_duration(seconds)
+    return "{0:02d}:{1:02d}".format(*divmod(seconds, 60))
+
+
 def status_label(snapshot: SessionSnapshot) -> str:
     labels = {
         SessionStatus.ACTIVE: "🟢 Буст идёт",
         SessionStatus.PAUSED: "⏸️ Игра прервана",
         SessionStatus.CONNECTING: "🟡 Подключение",
+        SessionStatus.RECONNECTING: "🔄 Переподключение",
         SessionStatus.AWAITING_GUARD: "🔐 Нужен Steam Guard",
         SessionStatus.AWAITING_EMAIL: "📧 Нужен email-код",
         SessionStatus.STOPPING: "🟠 Остановка",
@@ -68,15 +78,20 @@ def dashboard_keyboard(accounts: Iterable[Account], page: int, total: int) -> In
             navigation.append(InlineKeyboardButton(text="➡️", callback_data="home:{0}".format(page + 1)))
         rows.append(navigation)
 
-    rows.extend(
-        [
-            [InlineKeyboardButton(text="➕ Добавить аккаунт", callback_data="new")],
-            [
-                InlineKeyboardButton(text="🔄 Обновить", callback_data="home:{0}".format(page)),
-            ],
+    rows.append([InlineKeyboardButton(text="➕ Добавить аккаунт", callback_data="new")])
+    if total:
+        rows.append([InlineKeyboardButton(text="🛡 Импорт Guard (maFile)", callback_data="import_guard")])
+    rows.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="home:{0}".format(page))])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def import_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Готово", callback_data="home:0")],
+            [InlineKeyboardButton(text="✖️ Отменить", callback_data="cancel")],
         ]
     )
-    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def dashboard_text(rows: Iterable[tuple], total_accounts: int) -> str:
@@ -100,7 +115,8 @@ def dashboard_text(rows: Iterable[tuple], total_accounts: int) -> str:
 
 
 def account_keyboard(account_id: int, snapshot: SessionSnapshot, page: int) -> InlineKeyboardMarkup:
-    if snapshot.status in (SessionStatus.ACTIVE, SessionStatus.CONNECTING, SessionStatus.STOPPING, SessionStatus.PAUSED):
+    if snapshot.status in (SessionStatus.ACTIVE, SessionStatus.CONNECTING, SessionStatus.RECONNECTING,
+                           SessionStatus.STOPPING, SessionStatus.PAUSED):
         primary = InlineKeyboardButton(text="⏹️ Остановить", callback_data="stop:{0}:{1}".format(account_id, page))
     elif snapshot.status in (SessionStatus.AWAITING_GUARD, SessionStatus.AWAITING_EMAIL):
         primary = InlineKeyboardButton(text="🔐 Ввести код", callback_data="guard:{0}:{1}".format(account_id, page))
@@ -128,6 +144,14 @@ def account_text(account: Account, stats: AccountStats, snapshot: SessionSnapsho
     text = "<b>🎮 {0}</b>\n\n".format(html.escape(account.title))
     text += "👤 Логин: <code>{0}</code>\n".format(html.escape(account.username))
     text += "📡 Статус: <b>{0}</b>\n".format(status_label(snapshot))
+    if snapshot.status == SessionStatus.RECONNECTING:
+        text += "🔄 Нет связи со Steam: попытка {0}".format(snapshot.reconnect_attempt)
+        if snapshot.down_since is not None:
+            text += ", простой {0}".format(format_outage(time.time() - snapshot.down_since))
+        if snapshot.retry_at is not None and snapshot.retry_at > time.time():
+            text += " · следующая через {0} с".format(int(math.ceil(snapshot.retry_at - time.time())))
+        text += "\n"
+    text += "🛡 Steam Guard: <b>{0}</b>\n".format("авто" if account.shared_secret else "вручную")
     text += "🎯 Игры:\n"
     if account.custom_game_name:
         text += "• <b>{0}</b> <i>(сторонняя игра)</i>\n".format(html.escape(account.custom_game_name))
@@ -161,12 +185,15 @@ def account_text(account: Account, stats: AccountStats, snapshot: SessionSnapsho
     return text
 
 
-def edit_keyboard(account_id: int, page: int, has_custom_game: bool = False) -> InlineKeyboardMarkup:
+def edit_keyboard(account_id: int, page: int, has_custom_game: bool = False,
+                  has_guard_secret: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🏷 Название", callback_data="field:{0}:title:{1}".format(account_id, page))],
             [InlineKeyboardButton(text="👤 Логин Steam", callback_data="field:{0}:username:{1}".format(account_id, page))],
             [InlineKeyboardButton(text="🔑 Пароль Steam", callback_data="field:{0}:password:{1}".format(account_id, page))],
+            [InlineKeyboardButton(text="🛡 Steam Guard secret", callback_data="field:{0}:shared_secret:{1}".format(account_id, page))],
+            *([[InlineKeyboardButton(text="✖️ Убрать Guard secret", callback_data="clear_secret:{0}:{1}".format(account_id, page))]] if has_guard_secret else []),
             [InlineKeyboardButton(text="🎯 Steam App ID", callback_data="field:{0}:games:{1}".format(account_id, page))],
             [InlineKeyboardButton(text="🎮 Кастомная игра", callback_data="field:{0}:custom_game_name:{1}".format(account_id, page))],
             *([[InlineKeyboardButton(text="✖️ Убрать кастомную игру", callback_data="clear_custom:{0}:{1}".format(account_id, page))]] if has_custom_game else []),

@@ -19,7 +19,7 @@ if not exist "%PYTHON_CMD%" (
         exit /b 1
     )
     echo [SETUP] Creating local .venv...
-    %BOOTSTRAP_PY% -m venv .venv
+    call %%BOOTSTRAP_PY%% -m venv .venv
     if errorlevel 1 (
         echo [ERROR] Could not create .venv.
         pause

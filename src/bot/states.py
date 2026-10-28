@@ -9,6 +9,7 @@ class AccountForm(StatesGroup):
     add_password = State()
     add_games = State()
     edit_value = State()
+    import_mafiles = State()
 
 
 class GuardCode(StatesGroup):
