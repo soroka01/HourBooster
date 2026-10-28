@@ -8,7 +8,7 @@
 ![aiogram](https://img.shields.io/badge/aiogram-3.31.0-2CA5E0?logo=telegram&logoColor=white)
 ![steam](https://img.shields.io/badge/steam%5Bclient%5D-1.4.4-171A21?logo=steam&logoColor=white)
 ![SQLite](https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white)
-![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)
 
 ## 📌 Overview
 
@@ -226,7 +226,7 @@ The password is sent to Steam RSA-encrypted; the Steam client then logs in with 
 
 ## 📄 License
 
-[MIT](LICENSE).
+[GNU GPL v3.0](LICENSE). Versions published before the change remain under MIT.
 
 ## 💬 Support
 
