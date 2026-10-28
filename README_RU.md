@@ -9,6 +9,7 @@
 ![steam](https://img.shields.io/badge/steam%5Bclient%5D-1.4.4-171A21?logo=steam&logoColor=white)
 ![SQLite](https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)
+[![CI](https://github.com/soroka01/HourBooster/actions/workflows/ci.yml/badge.svg)](https://github.com/soroka01/HourBooster/actions/workflows/ci.yml)
 
 ## 📌 Обзор
 
@@ -184,6 +185,8 @@ src/
 ├── steam/              # вход в Steam, управление сессиями, названия игр
 │   └── guard.py        # shared_secret, коды Steam Guard, время Steam
 └── storage/            # база данных SQLite
+tests/                  # модульные тесты (unittest, поддельный Steam, без сети)
+.github/workflows/      # GitHub Actions: тесты на Linux и Windows
 data/                   # SQLite-база времени выполнения (создаётся при запуске)
 ```
 
@@ -234,6 +237,17 @@ SQLite по умолчанию находится в `data/hour_booster.sqlite3`
 | `TelegramNetworkError` / `ServerDisconnectedError` при обновлении экрана | Это связь с Telegram. Бот повторяет обновление с паузой до 60 секунд и пишет о восстановлении в консоль; Steam-сессии не перезапускаются. При лимите Telegram учитывается `retry_after` |
 | Статистика выросла после restart | Ограничение recovery незакрытой session выше |
 | Не ставится `steam[client]` | Python version и platform build dependencies |
+
+## 🧪 Тесты
+
+Модульные тесты в `tests/` используют только стандартную библиотеку и поддельный клиент Steam, поэтому аккаунты и сеть не нужны. Запуск из папки проекта:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+$env:TEST_LANG = "ru"; .\.venv\Scripts\python.exe -m unittest discover -s tests   # русский интерфейс
+```
+
+GitHub Actions запускает их на Linux и Windows, на обоих языках интерфейса, при каждом пуше и pull request.
 
 ## 📄 Лицензия
 

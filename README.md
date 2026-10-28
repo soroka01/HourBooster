@@ -9,6 +9,7 @@
 ![steam](https://img.shields.io/badge/steam%5Bclient%5D-1.4.4-171A21?logo=steam&logoColor=white)
 ![SQLite](https://img.shields.io/badge/storage-SQLite-003B57?logo=sqlite&logoColor=white)
 ![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)
+[![CI](https://github.com/soroka01/HourBooster/actions/workflows/ci.yml/badge.svg)](https://github.com/soroka01/HourBooster/actions/workflows/ci.yml)
 
 ## 📌 Overview
 
@@ -184,6 +185,8 @@ src/
 ├── steam/              # Steam login, session management, game names
 │   └── guard.py        # shared_secret, Steam Guard codes, Steam time
 └── storage/            # SQLite database
+tests/                  # unit tests (unittest, fake Steam, no network)
+.github/workflows/      # GitHub Actions: tests on Linux and Windows
 data/                   # runtime SQLite database (created on launch)
 ```
 
@@ -234,6 +237,17 @@ The password is sent to Steam RSA-encrypted; the Steam client then logs in with 
 | `TelegramNetworkError` / `ServerDisconnectedError` during screen refresh | This affects Telegram connectivity. Refresh retries with delays up to 60 seconds and logs recovery without restarting Steam sessions. Telegram rate limits use the server's `retry_after` |
 | Statistics grow after restart | The interrupted-session recovery limitation above |
 | `steam[client]` does not install | Python version and platform build dependencies |
+
+## 🧪 Tests
+
+The unit tests in `tests/` use only the standard library and a fake Steam client, so they need no accounts and no network. Run them from the project directory:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+$env:TEST_LANG = "ru"; .\.venv\Scripts\python.exe -m unittest discover -s tests   # Russian interface
+```
+
+GitHub Actions runs them on Linux and Windows, in both interface languages, for every push and pull request.
 
 ## 📄 License
 
