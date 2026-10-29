@@ -3,6 +3,7 @@
 import asyncio
 import html
 import logging
+import time
 from typing import Optional, Tuple
 
 from aiogram import Bot, Router
@@ -13,7 +14,9 @@ from aiogram.types import CallbackQuery, Message
 
 from ..i18n import LANGUAGE_SETTING, other_language, set_language, t
 from ..storage import Account, Database, StorageError, parse_game_ids
-from ..steam.guard import GuardSecretError, extract_shared_secret, parse_mafile
+from ..steam.guard import (
+    GuardSecretError, code_seconds_left, extract_shared_secret, generate_code, parse_mafile, steam_clock,
+)
 from ..steam.steam_manager import LIVE_STATUSES, SessionStatus, SteamSessionManager
 from ..steam.game_names import GameNames
 from .commands import set_bot_commands
@@ -23,6 +26,8 @@ from .ui import (
     SingleMessageUI,
     account_keyboard,
     account_text,
+    code_keyboard,
+    code_text,
     dashboard_keyboard,
     dashboard_text,
     delete_keyboard,
@@ -35,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 MAX_GUARD_FILE_BYTES = 64 * 1024
 MAX_IMPORT_LINES = 15
+CODE_VIEW_SECONDS = 300
 
 
 class BoosterController:
@@ -189,6 +195,12 @@ class BoosterController:
             if parts:
                 await self.render_account(chat_id, int(parts[1]), self._page(parts[2]) if len(parts) == 3 else 0, True, detailed=True)
             return
+        if data.startswith("code:"):
+            parts = self._parse_callback(data, 3)
+            if parts:
+                await state.clear()
+                await self.render_code(chat_id, int(parts[1]), self._page(parts[2]), True)
+            return
         if data.startswith("edit:"):
             parts = self._parse_callback(data, 2) or self._parse_callback(data, 3)
             if parts:
@@ -287,7 +299,7 @@ class BoosterController:
         await self.ui.show_for_chat(
             chat_id,
             account_text(account, stats, snapshot, detailed=detailed, game_names=names),
-            account_keyboard(account.id, snapshot, page),
+            account_keyboard(account.id, snapshot, page, bool(account.shared_secret)),
         )
         if start_refresh and snapshot.status in LIVE_STATUSES:
             self.ui.start_live_refresh(
@@ -297,6 +309,39 @@ class BoosterController:
             )
         elif snapshot.status not in LIVE_STATUSES:
             self.ui.stop_live_refresh(chat_id)
+
+    async def render_code(
+        self, chat_id: int, account_id: int, page: int, start_refresh: bool, opened_at: Optional[float] = None
+    ) -> None:
+        """The current Guard code for the owner; refreshes itself for a few minutes, then hides the code."""
+        account = self.database.get_account(account_id)
+        if account is None or not account.shared_secret:
+            await self.render_account(chat_id, account_id, page, True)
+            return
+
+        opened_at = time.monotonic() if opened_at is None else opened_at
+        expired = time.monotonic() - opened_at >= CODE_VIEW_SECONDS
+        code, seconds_left = None, 0
+        if not expired:
+            # Steam's clock is fetched over the network at most once an hour; keep that off the event loop.
+            moment = await asyncio.to_thread(steam_clock.now)
+            if not self.ui.is_current_screen(chat_id):
+                return
+            code = generate_code(account.shared_secret, moment)
+            seconds_left = code_seconds_left(moment)
+        await self.ui.show_for_chat(
+            chat_id,
+            code_text(account.title, code, seconds_left),
+            code_keyboard(account_id, page, expired),
+        )
+        if expired:
+            self.ui.stop_live_refresh(chat_id)
+        elif start_refresh:
+            self.ui.start_live_refresh(
+                chat_id,
+                lambda: self.render_code(chat_id, account_id, page, False, opened_at),
+                interval=2,
+            )
 
     async def begin_add(self, chat_id: int, state: FSMContext) -> None:
         self.ui.stop_live_refresh(chat_id)

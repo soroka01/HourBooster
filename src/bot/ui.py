@@ -116,7 +116,8 @@ def dashboard_text(rows: Iterable[tuple], total_accounts: int) -> str:
     return text
 
 
-def account_keyboard(account_id: int, snapshot: SessionSnapshot, page: int) -> InlineKeyboardMarkup:
+def account_keyboard(account_id: int, snapshot: SessionSnapshot, page: int,
+                     has_guard_secret: bool = False) -> InlineKeyboardMarkup:
     if snapshot.status in (SessionStatus.ACTIVE, SessionStatus.CONNECTING, SessionStatus.RECONNECTING,
                            SessionStatus.STOPPING, SessionStatus.PAUSED):
         primary = InlineKeyboardButton(text=t("bot.button.stop"), callback_data="stop:{0}:{1}".format(account_id, page))
@@ -128,6 +129,8 @@ def account_keyboard(account_id: int, snapshot: SessionSnapshot, page: int) -> I
     rows = [[primary]]
     if snapshot.status in (SessionStatus.AWAITING_GUARD, SessionStatus.AWAITING_EMAIL):
         rows.append([InlineKeyboardButton(text=t("bot.button.cancel_login"), callback_data="cancel")])
+    if has_guard_secret:
+        rows.append([InlineKeyboardButton(text=t("bot.button.show_code"), callback_data="code:{0}:{1}".format(account_id, page))])
     rows.extend(
         [
             [
@@ -185,6 +188,20 @@ def account_text(account: Account, stats: AccountStats, snapshot: SessionSnapsho
     if snapshot.error:
         text += t("bot.account.state", error=html.escape(snapshot.error))
     return text
+
+
+def code_text(title: str, code: Optional[str], seconds_left: int = 0) -> str:
+    if code is None:
+        return t("bot.code.expired", title=html.escape(title))
+    return t("bot.code.text", title=html.escape(title), code=code, seconds=seconds_left)
+
+
+def code_keyboard(account_id: int, page: int, expired: bool = False) -> InlineKeyboardMarkup:
+    rows = []
+    if expired:
+        rows.append([InlineKeyboardButton(text=t("bot.button.show_code"), callback_data="code:{0}:{1}".format(account_id, page))])
+    rows.append([InlineKeyboardButton(text=t("bot.button.back"), callback_data="account:{0}:{1}".format(account_id, page))])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def edit_keyboard(account_id: int, page: int, has_custom_game: bool = False,

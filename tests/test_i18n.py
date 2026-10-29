@@ -1,8 +1,10 @@
 import asyncio
+import base64
 import os
 import re
 import string
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -12,9 +14,11 @@ from aiogram.types import InlineKeyboardMarkup
 
 from src import i18n
 from src.i18n import Text
+from src.bot import controller as controller_module
 from src.bot import ui
 from src.bot.controller import BoosterController
 from src.steam import game_names
+from src.steam.guard import generate_code
 from src.steam.auth import AuthError
 from src.steam.steam_manager import SessionSnapshot, SessionStatus, SteamSessionManager, _Session, _message
 from src.storage import Account, AccountStats, Database
@@ -145,9 +149,11 @@ class RenderTests(LanguageCase):
             for snap in self.snapshots():
                 for detailed in (False, True):
                     out.append(ui.account_text(account, self.stats(True), snap, detailed=detailed, game_names={730: "Dota 2"}))
-                out += keyboard_texts(ui.account_keyboard(1, snap, 0))
+                out += keyboard_texts(ui.account_keyboard(1, snap, 0, bool(secret)))
                 out.append(ui.status_label(snap))
             out += keyboard_texts(ui.edit_keyboard(1, 0, True, bool(secret)))
+            out += [ui.code_text(account.title, "AB3DE", 12), ui.code_text(account.title, None)]
+            out += keyboard_texts(ui.code_keyboard(1, 0)) + keyboard_texts(ui.code_keyboard(1, 0, expired=True))
             out.append(ui.dashboard_text([(account, self.stats(), s) for s in self.snapshots()], 3))
         out += keyboard_texts(ui.dashboard_keyboard([self.account()], 0, 9))
         out += keyboard_texts(ui.import_keyboard()) + keyboard_texts(ui.form_keyboard()) + keyboard_texts(ui.delete_keyboard(1, 0))
@@ -280,6 +286,98 @@ class ToggleTests(unittest.IsolatedAsyncioTestCase):
         text, _ = self.last_screen()
         self.assertIn("CS &amp; &lt;Dota&gt;", text)
         self.assertNotIn("<Dota>", text)
+
+    def add_guard_account(self, title="Main & <Co>"):
+        account = self.database.create_account(title, "login", "pw", [730])
+        self.database.update_account(account.id, "shared_secret", base64.b64encode(b"0123456789abcdefghij").decode())
+        return self.database.get_account(account.id)
+
+    async def test_guard_code_screen_shows_the_current_code_and_refreshes_itself(self):
+        account = self.add_guard_account()
+        with mock.patch.object(controller_module.steam_clock, "now", return_value=1000.0), \
+                mock.patch.object(self.controller.ui, "start_live_refresh") as refresh:
+            await self.controller.render_code(1, account.id, 0, True)
+        text, buttons = self.last_screen()
+        expected = generate_code(account.shared_secret, 1000.0)
+        self.assertIn("<code>{0}</code>".format(expected), text)
+        self.assertIn("<b>20 s</b>", text)
+        self.assertIn("Main &amp; &lt;Co&gt;", text)
+        self.assertEqual(buttons, ["⬅️ Back"])
+        refresh.assert_called_once()
+
+    async def test_guard_code_screen_hides_the_code_after_a_while(self):
+        account = self.add_guard_account()
+        stale = time.monotonic() - controller_module.CODE_VIEW_SECONDS - 1
+        with mock.patch.object(controller_module.steam_clock, "now", side_effect=AssertionError("no clock needed")), \
+                mock.patch.object(self.controller.ui, "start_live_refresh") as refresh:
+            await self.controller.render_code(1, account.id, 0, False, opened_at=stale)
+        text, buttons = self.last_screen()
+        self.assertNotIn("<code>", text)
+        self.assertEqual(buttons, ["🛡 Show Guard code", "⬅️ Back"])
+        refresh.assert_not_called()
+
+    async def test_guard_code_screen_updates_by_itself_and_then_stops(self):
+        account = self.add_guard_account()
+        real_sleep = asyncio.sleep
+
+        async def fast_sleep(delay):
+            await real_sleep(0.01)
+
+        ticks = iter(range(10000))
+        clock = lambda: 1000.0 + next(ticks)  # every refresh sees a later moment
+
+        async def edits(count):
+            for _ in range(400):
+                if self.bot.edit_message_text.await_count >= count:
+                    return
+                await real_sleep(0.01)
+            self.fail("the screen did not update by itself")
+
+        with mock.patch.object(controller_module.steam_clock, "now", side_effect=clock), \
+                mock.patch.object(ui.asyncio, "sleep", fast_sleep), \
+                mock.patch.object(controller_module, "CODE_VIEW_SECONDS", 0.3):
+            await self.controller.render_code(1, account.id, 0, True)
+            await edits(3)
+            seen = [call.kwargs["text"] for call in self.bot.edit_message_text.await_args_list]
+            self.assertEqual(len(set(seen)), len(seen))  # the countdown moves on every update
+            for _ in range(400):  # the view times out, hides the code and stops editing
+                if "<code>" not in self.last_screen()[0]:
+                    break
+                await real_sleep(0.01)
+            self.assertNotIn("<code>", self.last_screen()[0])
+            await real_sleep(0.1)
+            settled = self.bot.edit_message_text.await_count
+            await real_sleep(0.2)
+            self.assertEqual(self.bot.edit_message_text.await_count, settled)
+
+    async def test_guard_code_is_not_offered_without_a_secret(self):
+        account = self.database.create_account("Plain", "login", "pw", [730])
+        await self.controller.render_code(1, account.id, 0, True)
+        text, buttons = self.last_screen()
+        self.assertIn("Plain", text)  # fell back to the account card
+        self.assertNotIn("Steam Guard code", text)
+        self.assertNotIn("🛡 Show Guard code", buttons)
+        self.assertIn("🚀 Start", buttons)
+
+    async def test_account_card_offers_the_code_only_with_a_secret(self):
+        secret = self.add_guard_account()
+        plain = self.database.create_account("Plain", "other", "pw", [730])
+        await self.controller.render_account(1, secret.id, 0, False)
+        self.assertIn("🛡 Show Guard code", self.last_screen()[1])
+        await self.controller.render_account(1, plain.id, 0, False)
+        self.assertNotIn("🛡 Show Guard code", self.last_screen()[1])
+
+    async def test_code_callback_opens_the_screen(self):
+        account = self.add_guard_account()
+        callback = types.SimpleNamespace(
+            data="code:{0}:0".format(account.id), answer=mock.AsyncMock(),
+            from_user=types.SimpleNamespace(id=1),
+            message=types.SimpleNamespace(chat=types.SimpleNamespace(id=1), message_id=5),
+        )
+        with mock.patch.object(controller_module.steam_clock, "now", return_value=1000.0), \
+                mock.patch.object(self.controller.ui, "start_live_refresh"):
+            await self.controller.handle_callback(callback, mock.AsyncMock())
+        self.assertIn(generate_code(account.shared_secret, 1000.0), self.last_screen()[0])
 
     async def test_toggle_survives_a_failing_command_menu_update(self):
         from aiogram.exceptions import TelegramNetworkError

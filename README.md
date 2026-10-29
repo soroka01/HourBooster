@@ -120,6 +120,10 @@ An account can have only one mobile authenticator: the Steam app on your phone s
 
 You do **not** need to keep steamguard-cli running after setup: the bot computes the codes itself (keep the `.maFile` files as a backup). Files from Steam Desktop Authenticator also work if you already have them. The "🛡 Steam Guard" line on the account card shows "auto" or "manual".
 
+**Seeing the code yourself**
+
+An account with a saved secret has a **🛡 Show Guard code** button on its card. It shows the current code (tap to copy) and the seconds left, and the screen updates by itself every couple of seconds, so you can use the bot as your authenticator. After 5 minutes the code is hidden and updates stop; press the button again to bring it back. Only the owner can open it.
+
 ## ⚙️ Configuration
 
 Telegram settings live in the `app_settings` table of the same SQLite database as the accounts. Stop the bot before changing its token or owner ID:

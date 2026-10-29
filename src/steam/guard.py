@@ -84,6 +84,11 @@ def seconds_to_next_window(timestamp: float) -> float:
     return CODE_PERIOD - (timestamp % CODE_PERIOD) + 1.0
 
 
+def code_seconds_left(timestamp: float) -> int:
+    """Whole seconds the code generated at `timestamp` stays valid."""
+    return CODE_PERIOD - int(timestamp) % CODE_PERIOD
+
+
 class SteamClock:
     """Steam server time, cached; Guard codes are rejected when the local clock drifts."""
 

@@ -33,6 +33,14 @@ class GuardCodeTests(unittest.TestCase):
             self.assertGreater(guard.seconds_to_next_window(moment), 0)
             self.assertLessEqual(guard.seconds_to_next_window(moment), 31.0)
 
+    def test_seconds_left_counts_down_to_the_window_edge(self):
+        self.assertEqual(guard.code_seconds_left(1700000010.0), 30)  # a window starts here
+        self.assertEqual(guard.code_seconds_left(1700000020.0), 20)
+        self.assertEqual(guard.code_seconds_left(30.0), 30)
+        self.assertEqual(guard.code_seconds_left(59.9), 1)
+        for moment in range(0, 120):
+            self.assertTrue(1 <= guard.code_seconds_left(moment) <= 30)
+
 
 class SecretParsingTests(unittest.TestCase):
     def setUp(self):
